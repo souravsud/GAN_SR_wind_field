@@ -12,7 +12,7 @@ from ray.tune.schedulers import ASHAScheduler
 from train import log_status_logs
 import config.config as config
 import logging
-from ray.air import Checkpoint, session
+import ray.train as ray_train
 import torch
 import torch.cuda
 import tensorboardX
@@ -251,7 +251,7 @@ def train_param_search(
                     tb_writer.add_scalars("metrics/PSNR", PSNR_metrics, it)
                     tb_writer.add_scalars("metrics/pix", pix_metrics, it)
 
-                session.report(
+                ray_train.report(
                     {
                         "it": it,
                         "PSNR": metrics_vals["val_PSNR"],
@@ -381,9 +381,6 @@ def param_search(
     search_algorithm = ConcurrencyLimiter(
         search_algorithm, max_concurrent=number_of_GPUs
     )
-    reporter = tune.CLIReporter(
-        max_report_frequency=200, max_column_length=5, print_intermediate_tables=True
-    )
 
     # train_param_search(initial_search_config, cfg, dataset_train, dataset_validation, x, y)
 
@@ -408,15 +405,13 @@ def param_search(
             "gpu": 1 if torch.cuda.is_available() else 0,
         },
         config=search_space,
-        progress_reporter=reporter,
         num_samples=num_samples,
         metric="PSNR",
         mode="max",
         scheduler=scheduler,
         search_alg=search_algorithm,
-        local_dir=cfg.env.this_runs_folder,
+        storage_path=cfg.env.this_runs_folder,
         chdir_to_trial_dir=False,
-        sync_config=tune.SyncConfig(syncer=None),
         fail_fast=True,
     )
 
