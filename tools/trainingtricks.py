@@ -34,8 +34,10 @@ def noisy_labels(
     @arg [false|true]_label_val: label values without noise.
     @arg val_[lower|upper]_lim: thresholds for label val cutoff
     """
+    # float() is required because noise_stddev defaults to torch.tensor(0.05);
+    # torch.full() in PyTorch 2.x+ rejects a Tensor as fill_value.
     label_val = torch.normal(
-        mean=0.0, std=torch.full(torch.Size([batch_size]), noise_stddev)
+        mean=0.0, std=torch.full(torch.Size([batch_size]), float(noise_stddev))
     ).to(device)
     if label_type == True:
         label_val += true_label_val
