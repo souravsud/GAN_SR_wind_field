@@ -15,6 +15,7 @@ import netCDF4
 from netCDF4 import Dataset
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 
 def check(url):
@@ -144,13 +145,16 @@ def get_static_data(input_folder, terrain_data_path):
         if not files:
             raise ValueError("Data not found")
         filename = files[0]
+        print("Static data derived from:", filename)
     except FileNotFoundError:
         print("Data not found")
 
     nc_fid = Dataset(os.path.join(input_folder, filename), mode="r")
 
-    x = 100000 * nc_fid["x"][:]
-    y = 100000 * nc_fid["y"][:]
+    #x = 100000 * nc_fid["x"][:]
+    #y = 100000 * nc_fid["y"][:]
+    x = 10 * nc_fid["x"][:]
+    y = 10 * nc_fid["y"][:]
     terrain = nc_fid["surface_altitude"][:]
     nc_fid.close()
 
@@ -162,8 +166,13 @@ def get_static_data(input_folder, terrain_data_path):
 
 
 def extract_slice_and_filter_3D(
-    data_code, start_date, end_date, raw_data_folder, transpose_indices=[0, 2, 3, 1],
+    dataset, data_code, start_date, end_date, raw_data_folder, transpose_indices=[0, 2, 3, 1],
 ):
+    if dataset == "Bessaker":
+        time_shape = 13
+    else:
+        time_shape = 144
+
     delta = end_date - start_date
     sim_times = ["T00Z.nc", "T12Z.nc"]
     index = 0
@@ -175,7 +184,7 @@ def extract_slice_and_filter_3D(
             filename = os.path.join(raw_data_folder, filename + sim_time)
             try:
                 nc_fid = Dataset(filename, mode="r")
-                assert nc_fid["time"][:].shape[0] == 13
+                assert nc_fid["time"][:].shape[0] == time_shape
                 if index == 0:
                     # time = nc_fid["time"][:]
                     # latitude = nc_fid["longitude"][:]
@@ -512,6 +521,8 @@ def download_all_files(
             invalid_files_path,
         )
 def prepare_and_split(
+    dataset,
+    data_code,
     filenames,
     terrain,
     x_dict,
@@ -520,19 +531,24 @@ def prepare_and_split(
     raw_data_folder,
     folder,
 ):  
-    data_code = "simra_BESSAKER_"
     start_time = datetime.strptime(filenames[0][:-7], "%Y-%m-%d")
     end_time = datetime.strptime(filenames[-1][:-7], "%Y-%m-%d")
     days = (end_time - start_time).days + 1
     transpose_indices = [0, 2, 3, 1]
     invalid_samples = set()
-    for i in range(0, days, 5):
+
+    if dataset == "Bessaker":
+        batch_size = 5
+    else:
+        batch_size = 1
+
+    for i in range(0, days, batch_size):
         start = i
-        end = min(i + 5, days)
+        end = min(i + batch_size, days)
         start_date = (start_time + timedelta(days=start)).date()
         end_date = (start_time + timedelta(days=end - 1)).date()
 
-        z, u, v, w, pressure, invalid_download_files = extract_slice_and_filter_3D(
+        z, u, v, w, pressure, invalid_download_files = extract_slice_and_filter_3D(dataset,
             data_code, start_date, end_date,raw_data_folder, transpose_indices,
         )
 

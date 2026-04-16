@@ -20,8 +20,10 @@ from download_data import (
     download_all_files,
     prepare_and_split,
 )
+from dataReformat import perdigao_data_reformat
 from datetime import date
 import os
+import re
 
 
 class CustomizedDataset(torch.utils.data.Dataset):
@@ -314,6 +316,8 @@ def calculate_gradient_of_wind_field(HR_data, x, y, Z):
     )
 
 def prepare_data(
+    dataset,
+    data_code,
     start_date: date,
     end_date: date,
     x_dict,
@@ -368,6 +372,8 @@ def prepare_data(
                         )
                         invalid_samples = invalid_samples.union(
                             prepare_and_split(
+                                dataset,
+                                data_code,
                                 filenames[start:i],
                                 terrain,
                                 x_dict,
@@ -392,6 +398,8 @@ def prepare_data(
                     )
                     invalid_samples = invalid_samples.union(
                         prepare_and_split(
+                            dataset,
+                            data_code,
                             filenames[start:],
                             terrain,
                             x_dict,
@@ -491,8 +499,8 @@ def preprosess(
     destination_folder,
     processed_data_folder,
     train_eval_test_ratio=0.8,
-    X_DICT={"start": 0, "max": 128, "step": 1},
-    Y_DICT={"start": 0, "max": 128, "step": 1},
+    X_DICT={"start": 5, "max": 133, "step": 1},
+    Y_DICT={"start": 4, "max": 132, "step": 1},
     Z_DICT={"start": 0, "max": 10, "step": 1},
     start_date=date(2018, 4, 1),
     end_date=date(2018, 4, 3),
@@ -509,13 +517,27 @@ def preprosess(
     val_aug_flip=False,
     for_plotting=False,
     isDownload=False,
+    dataset= "bessaker",
+    data_source = None,
 ):
+
     #First check if --download flag is set, if True then download all files,
     # then extract terrain data from downloaded data
-    if isDownload:
-        download_all_files(start_date, 
-                           end_date,
-                           destination_folder,)
+    
+    if dataset == "perdigao":
+        start_date, end_date= perdigao_data_reformat(
+                                                    start_date,
+                                                    end_date,
+                                                    destination_folder,
+                                                    data_source,
+                                                    )
+    elif dataset == "bessaker":
+        download_all_files(start_date,
+                            end_date,
+                            destination_folder,)
+    else:
+        print("Invalid dataset (select 'perdigao' or 'bessaker')")
+
     terrain_data_path = os.path.join(processed_data_folder,"static_terrain_x_y.pkl")
     if not os.path.exists(terrain_data_path):
         get_static_data(destination_folder, terrain_data_path)
@@ -523,6 +545,8 @@ def preprosess(
             terrain, x, y = slice_only_dim_dicts(
                 *pickle.load(f), x_dict=X_DICT, y_dict=Y_DICT
                 )
+
+    data_code = get_dataCode(destination_folder)
 
     (
         filenames,
@@ -534,6 +558,8 @@ def preprosess(
         P_MIN,
         P_MAX,
     ) = prepare_data(
+        dataset,
+        data_code,
         start_date,
         end_date,
         X_DICT,
@@ -635,8 +661,29 @@ def preprosess(
         dataset_validation,
         torch.from_numpy(x).float(),
         torch.from_numpy(y).float(),
+        start_date,
+        end_date,
     )
 
+def get_dataCode(input_folder):
+    prefix=None
+    try:
+        files = os.listdir(input_folder)
+        if not files:
+            raise ValueError("Data not found")
+        filename = files[0]
+    except FileNotFoundError:
+        print("Data not found")
+    # Extract the prefix (string till the date)
+    match = re.match(r"(.*_)\d{8}T\d{2}Z", filename)
+    if match:
+        prefix = match.group(1)  # Extract the matching part before the date
+        print(f"Prefix: {prefix}")
+    if prefix==None:
+        raise RuntimeError("Check input files. Stopping execution.")
+    else:
+        return prefix 
+    
 
 if __name__ == "__main__":
     preprosess(include_above_ground_channel=True)

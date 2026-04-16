@@ -71,14 +71,19 @@ def main():
             cfg.gan_config.end_date[2],
         )
         status_logger.info(
-            "run.py: starting download of all data for Bessaker Wind farm from "
+            f"run.py: starting download of all data for {cfg.env.dataset} Wind farm from "
             + str(start_date)
             + " to "
             + str(end_date)
             + " not previously downloaded."
         )
 
-    dataset_train, dataset_test, dataset_validation, x, y = prepare_data(cfg)
+    dataset_train, dataset_test, dataset_validation, x, y, start_date_, end_date_ = prepare_data(cfg)
+    if cfg.is_download:
+        if start_date_ != start_date or end_date_ != end_date:
+            cfg.gan_config.start_date = [start_date_.year, start_date_.month, start_date_.day]
+            cfg.gan_config.end_date = [end_date_.year, end_date_.month, end_date_.day]
+            save_config(cfg, cfg.env.this_runs_folder)
 
     status_logger.info(f"run.py: data prepared")
 
@@ -319,6 +324,8 @@ def prepare_data(cfg: Config):
         train_eval_test_ratio=cfg.training.train_eval_test_ratio,
         COARSENESS_FACTOR=cfg.scale,
         isDownload=cfg.is_download,
+        dataset=cfg.env.dataset,
+        data_source = cfg.env.data_source,
     )
 
 

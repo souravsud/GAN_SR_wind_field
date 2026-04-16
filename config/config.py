@@ -83,6 +83,8 @@ class EnvConfig(IniConfig):
         self.discriminator_load_path = env_config.get("discriminator_load_path")
         self.state_load_path = env_config.get("state_load_path")
         self.fixed_seed = env_config.getint("fixed_seed")
+        self.dataset = env_config.get("dataset")
+        self.data_source = env_config.get("data_source")
 
 
 class GeneratorConfig(IniConfig):
