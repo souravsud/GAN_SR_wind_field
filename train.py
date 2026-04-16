@@ -388,7 +388,7 @@ def create_error_figure(
     average_SR_error,
     average_TL_error,
 ):
-    sm = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("viridis"))
+    sm = plt.cm.ScalarMappable(cmap="viridis")
     vmin, vmax = np.min(wind_comp_HR[:, :, wind_height_index]), np.max(
         wind_comp_HR[:, :, wind_height_index]
     )
@@ -432,9 +432,9 @@ def create_error_figure(
     )
     vmin_abs_error, vmax_abs_error = 0.0, max(abs(vmax_error), abs(vmin_error))
     sm.set_clim(vmin=vmin, vmax=vmax)
-    sm_error = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("coolwarm"))
+    sm_error = plt.cm.ScalarMappable(cmap="coolwarm")
     sm_error.set_clim(vmin=vmin_error, vmax=vmax_error)
-    sm_abs_error = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("jet"))
+    sm_abs_error = plt.cm.ScalarMappable(cmap="jet")
     sm_abs_error.set_clim(vmin=vmin_abs_error, vmax=vmax_abs_error)
 
     fig2, axes2 = plt.subplots(2, 3, figsize=(12, 6), sharey=True, sharex=True)
@@ -549,7 +549,7 @@ def create_comparison_figure(
     axes[1, 0].set_title("TL")
     fig.subplots_adjust(hspace=0.3)
 
-    sm = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("viridis"))
+    sm = plt.cm.ScalarMappable(cmap="viridis")
     sm.set_clim(vmin=vmin, vmax=vmax)
     fig.colorbar(sm, ax=axes)
     return fig
