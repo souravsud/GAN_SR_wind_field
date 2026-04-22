@@ -455,9 +455,7 @@ def preprosess(
     idx = idx.iloc[sample_start - 1 : sample_end].reset_index(drop=True)
 
     # Quality filters
-    idx = idx[(idx["converged"] == True) & (idx["mesh_mesh_ok"] == True)].reset_index(
-        drop=True
-    )
+    idx = idx[idx["converged"] & idx["mesh_mesh_ok"]].reset_index(drop=True)
 
     if len(idx) == 0:
         raise ValueError(
