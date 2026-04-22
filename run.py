@@ -17,7 +17,6 @@ import time
 import torch
 import random
 import numpy as np
-from datetime import date
 
 from config.config import Config
 from train import train
@@ -59,31 +58,12 @@ def main():
     status_logger.info(f"run.py: running with device: {cfg.device}")
 
     if cfg.is_download:
-        start_date = date(
-            cfg.gan_config.start_date[0],
-            cfg.gan_config.start_date[1],
-            cfg.gan_config.start_date[2],
-        )
-
-        end_date = date(
-            cfg.gan_config.end_date[0],
-            cfg.gan_config.end_date[1],
-            cfg.gan_config.end_date[2],
-        )
         status_logger.info(
-            f"run.py: starting download of all data for {cfg.env.dataset} Wind farm from "
-            + str(start_date)
-            + " to "
-            + str(end_date)
-            + " not previously downloaded."
+            f"run.py: preparing data for {cfg.env.dataset} "
+            f"(samples {cfg.gan_config.sample_start}–{cfg.gan_config.sample_end})"
         )
 
-    dataset_train, dataset_test, dataset_validation, x, y, start_date_, end_date_ = prepare_data(cfg)
-    if cfg.is_download:
-        if start_date_ != start_date or end_date_ != end_date:
-            cfg.gan_config.start_date = [start_date_.year, start_date_.month, start_date_.day]
-            cfg.gan_config.end_date = [end_date_.year, end_date_.month, end_date_.day]
-            save_config(cfg, cfg.env.this_runs_folder)
+    dataset_train, dataset_test, dataset_validation, x, y, sample_start_, sample_end_ = prepare_data(cfg)
 
     status_logger.info(f"run.py: data prepared")
 
@@ -299,24 +279,21 @@ def save_config(cfg: Config, folder: str):
 
 def prepare_data(cfg: Config):
     cfg_gan = cfg.gan_config
-    Z_DICT = {"start": 0, "max": cfg_gan.number_of_z_layers, "step": 1}
-    start_date = date(
-        cfg_gan.start_date[0], cfg_gan.start_date[1], cfg_gan.start_date[2]
-    )
-    end_date = date(cfg_gan.end_date[0], cfg_gan.end_date[1], cfg_gan.end_date[2])
 
     return preprosess(
         destination_folder=cfg.env.download_folder,
         processed_data_folder=cfg.env.processed_data_folder,
-        Z_DICT=Z_DICT,
-        start_date=start_date,
-        end_date=end_date,
+        sample_start=cfg_gan.sample_start,
+        sample_end=cfg_gan.sample_end,
+        crop_nx=cfg_gan.crop_nx,
+        crop_ny=cfg_gan.crop_ny,
+        crop_nk=cfg_gan.number_of_z_layers,
         include_pressure=cfg_gan.include_pressure,
         include_z_channel=cfg_gan.include_z_channel,
+        include_above_ground_channel=cfg_gan.include_above_ground_channel,
         interpolate_z=cfg_gan.interpolate_z,
         enable_slicing=cfg_gan.enable_slicing,
         slice_size=cfg_gan.slice_size,
-        include_above_ground_channel=cfg_gan.include_above_ground_channel,
         train_aug_rot=cfg.dataset_train.data_aug_rot,
         train_aug_flip=cfg.dataset_train.data_aug_flip,
         val_aug_rot=cfg.dataset_val.data_aug_rot,
@@ -325,7 +302,7 @@ def prepare_data(cfg: Config):
         COARSENESS_FACTOR=cfg.scale,
         isDownload=cfg.is_download,
         dataset=cfg.env.dataset,
-        data_source = cfg.env.data_source,
+        data_source=cfg.env.data_source,
     )
 
 
