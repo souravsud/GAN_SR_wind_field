@@ -119,7 +119,7 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
         record_shapes=True,
     ) as profiler:
         for epoch in range(start_epoch, count_train_epochs):
-            status_logger.debug("epoch {epoch}")
+            status_logger.debug(f"epoch {epoch}")
 
             # dataloader -> (LR, HR, HR_img_name)
 
