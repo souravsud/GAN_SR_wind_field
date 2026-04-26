@@ -1,9 +1,11 @@
 """
 process_data.py
-Zarr-based Wind-Terrain CFD dataset loading.
-Replaces the previous NetCDF/pickle-based HARMONIE-SIMRA pipeline.
+NPZ-based Wind-Terrain CFD dataset loading.
+Each simulation case is a directory containing maps.npz and fields.npz.
+Replaces the previous Zarr/NetCDF pipeline.
 """
 
+import json
 import os
 import re
 import pickle
@@ -12,17 +14,17 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.utils.data
-import xarray as xr
 
 # Reference velocity used by all simulations (m/s)
 REFERENCE_VELOCITY = 10.0
 
 
 class WindTerrainDataset(torch.utils.data.Dataset):
-    """PyTorch Dataset for the Zarr Wind-Terrain CFD dataset.
+    """PyTorch Dataset for the NPZ Wind-Terrain CFD dataset.
 
-    Each case is a single Zarr store containing steady-state RANS wind fields
-    over a terrain patch at a fixed reference velocity of 10 m/s.
+    Each case is a directory containing maps.npz (terrain geometry) and
+    fields.npz (CFD flow variables) for a steady-state RANS simulation at
+    a fixed reference velocity of 10 m/s.
 
     __getitem__ returns (LR, HR, Z) tensors with the same semantics as the
     former CustomizedDataset so that train.py / test.py are unchanged:
@@ -35,7 +37,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
 
     def __init__(
         self,
-        zarr_paths,
+        case_dirs,
         case_ids,
         Z_MIN,
         Z_MAX,
@@ -61,7 +63,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         slice_size=64,
         terrain=None,
     ):
-        self.zarr_paths = zarr_paths
+        self.case_dirs = case_dirs
         self.case_ids = case_ids
         self.Z_MIN = Z_MIN
         self.Z_MAX = Z_MAX
@@ -88,7 +90,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
     # ------------------------------------------------------------------
 
     def __len__(self):
-        return len(self.zarr_paths)
+        return len(self.case_dirs)
 
     def __getitem__(self, index):
         # ---- crop indices --------------------------------------------------
@@ -100,29 +102,28 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         j_start = (nj - self.crop_ny) // 2
         j_end = j_start + self.crop_ny
 
-        # ---- load from Zarr ------------------------------------------------
-        ds = xr.open_zarr(self.zarr_paths[index])
-        Ux = ds["Ux"].values[i_start:i_end, j_start:j_end, : self.crop_nk].astype(
-            np.float32
-        )
-        Uy = ds["Uy"].values[i_start:i_end, j_start:j_end, : self.crop_nk].astype(
-            np.float32
-        )
-        Uz = ds["Uz"].values[i_start:i_end, j_start:j_end, : self.crop_nk].astype(
-            np.float32
-        )
-        Z_abs = ds["Z"].values[i_start:i_end, j_start:j_end, : self.crop_nk].astype(
-            np.float32
-        )
-        h_agl = ds["h_agl"].values[
+        # ---- load from NPZ -------------------------------------------------
+        case_dir = self.case_dirs[index]
+        maps = np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True)
+        fields = np.load(os.path.join(case_dir, "fields.npz"))
+
+        dem = maps["dem"].astype(np.float32)[i_start:i_end, j_start:j_end]
+        h_agl = maps["h_agl"].astype(np.float32)[
             i_start:i_end, j_start:j_end, : self.crop_nk
-        ].astype(np.float32)
+        ]
+        Ux = fields["Ux"].astype(np.float32)[
+            i_start:i_end, j_start:j_end, : self.crop_nk
+        ]
+        Uy = fields["Uy"].astype(np.float32)[
+            i_start:i_end, j_start:j_end, : self.crop_nk
+        ]
+        Uz = fields["Uz"].astype(np.float32)[
+            i_start:i_end, j_start:j_end, : self.crop_nk
+        ]
+        # Reconstruct absolute elevation from ground DEM + height-above-ground
+        Z_abs = dem[:, :, np.newaxis] + h_agl
+        # Pressure is not stored in the NPZ format
         p = None
-        if self.include_pressure:
-            p = ds["p"].values[i_start:i_end, j_start:j_end, : self.crop_nk].astype(
-                np.float32
-            )
-        ds.close()
 
         # ---- build LR/HR/Z tensors -----------------------------------------
         LR, HR, Z_tensor = reformat_to_torch(
@@ -351,11 +352,12 @@ def reformat_to_torch(
 # ---------------------------------------------------------------------------
 
 
-def compute_norm_factors(zarr_paths, crop_nx, crop_ny, crop_nk, include_pressure):
-    """Scan training Zarr files to derive global normalisation constants.
+def compute_norm_factors(case_dirs, crop_nx, crop_ny, crop_nk, include_pressure):
+    """Scan training NPZ case directories to derive global normalisation constants.
 
     UVW_MAX is fixed at REFERENCE_VELOCITY (10 m/s) because all simulations
     use the same inlet boundary condition and linear scaling applies.
+    Pressure is not stored in the NPZ format; P_MIN/P_MAX are unused stubs.
     """
     ni, nj = 300, 300
     i_start = (ni - crop_nx) // 2
@@ -367,30 +369,24 @@ def compute_norm_factors(zarr_paths, crop_nx, crop_ny, crop_nk, include_pressure
     Z_MAX = -np.inf
     Z_ABOVE_GROUND_MAX = -np.inf
     UVW_MAX = REFERENCE_VELOCITY
-    P_MIN = np.inf
-    P_MAX = -np.inf
+    P_MIN = 0.0
+    P_MAX = 1.0
 
-    for path in zarr_paths:
+    for case_dir in case_dirs:
         try:
-            ds = xr.open_zarr(path)
-            Z_arr = ds["Z"].values[i_start:i_end, j_start:j_end, :crop_nk]
-            h_agl_arr = ds["h_agl"].values[i_start:i_end, j_start:j_end, :crop_nk]
+            maps = np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True)
+            dem = maps["dem"].astype(np.float32)[i_start:i_end, j_start:j_end]
+            h_agl_arr = maps["h_agl"].astype(np.float32)[
+                i_start:i_end, j_start:j_end, :crop_nk
+            ]
+            Z_arr = dem[:, :, np.newaxis] + h_agl_arr
             Z_MIN = min(Z_MIN, float(np.nanmin(Z_arr)))
             Z_MAX = max(Z_MAX, float(np.nanmax(Z_arr)))
             Z_ABOVE_GROUND_MAX = max(
                 Z_ABOVE_GROUND_MAX, float(np.nanmax(h_agl_arr))
             )
-            if include_pressure:
-                p_arr = ds["p"].values[i_start:i_end, j_start:j_end, :crop_nk]
-                P_MIN = min(P_MIN, float(np.nanmin(p_arr)))
-                P_MAX = max(P_MAX, float(np.nanmax(p_arr)))
-            ds.close()
         except Exception as exc:
-            print(f"Warning: could not read {path} during norm scan: {exc}")
-
-    if not include_pressure:
-        # Unused defaults; prevent div-by-zero inside reformat_to_torch
-        P_MIN, P_MAX = 0.0, 1.0
+            print(f"Warning: could not read {case_dir} during norm scan: {exc}")
 
     return Z_MIN, Z_MAX, Z_ABOVE_GROUND_MAX, UVW_MAX, P_MIN, P_MAX
 
@@ -429,13 +425,13 @@ def preprosess(
     enable_slicing=False,
     slice_size=64,
 ):
-    """Prepare train / validation / test datasets from the Zarr CFD dataset.
+    """Prepare train / validation / test datasets from the NPZ CFD dataset.
 
     Parameters
     ----------
     data_source : str
         Path to the dataset root directory (must contain ``data/`` and
-        ``metadata/case_index.csv``).
+        ``case_index.csv``).
     sample_start : int
         First sample to use (1-based row index in case_index.csv, inclusive).
     sample_end : int
@@ -448,8 +444,19 @@ def preprosess(
     """
     # Resolve dataset root
     dataset_root = data_source if data_source else destination_folder
-    zarr_data_dir = os.path.join(dataset_root, "data")
-    case_index_path = os.path.join(dataset_root, "metadata", "case_index.csv")
+    data_dir = os.path.join(dataset_root, "data")
+
+    # case_index.csv lives at the dataset root
+    case_index_path = os.path.join(dataset_root, "case_index.csv")
+    if not os.path.exists(case_index_path):
+        # Fallback for datasets that still have metadata/ sub-directory
+        fallback = os.path.join(dataset_root, "metadata", "case_index.csv")
+        if os.path.exists(fallback):
+            case_index_path = fallback
+        else:
+            raise FileNotFoundError(
+                f"case_index.csv not found at {case_index_path} or {fallback}"
+            )
 
     # ---- load and filter case index ----------------------------------------
     idx = pd.read_csv(case_index_path)
@@ -466,9 +473,9 @@ def preprosess(
             "after quality filtering (converged=True, mesh_mesh_ok=True)."
         )
 
-    # ---- build zarr paths --------------------------------------------------
-    def case_id_to_zarr_path(case_id):
-        return os.path.join(zarr_data_dir, case_id + ".zarr")
+    # ---- build case directory paths ----------------------------------------
+    def case_id_to_dir(case_id):
+        return os.path.join(data_dir, case_id)
 
     # Extract terrain key: capture the 'terrain_XXXX_...' portion so that
     # both wind directions of the same terrain share the same key.
@@ -477,21 +484,28 @@ def preprosess(
         return m.group(1) if m else case_id
 
     idx = idx.copy()
-    idx["zarr_path"] = idx["case_id"].apply(case_id_to_zarr_path)
+    idx["case_dir"] = idx["case_id"].apply(case_id_to_dir)
     idx["terrain_key"] = idx["case_id"].apply(get_terrain_key)
 
     # Warn about missing files but don't abort — allows partial datasets
-    missing = [p for p in idx["zarr_path"] if not os.path.exists(p)]
+    missing = [
+        d for d in idx["case_dir"]
+        if not os.path.exists(os.path.join(d, "fields.npz"))
+    ]
     if missing:
         print(
-            f"Warning: {len(missing)} Zarr store(s) not found on disk. "
+            f"Warning: {len(missing)} case(s) missing fields.npz on disk. "
             f"First missing: {missing[0]}"
         )
-        idx = idx[idx["zarr_path"].apply(os.path.exists)].reset_index(drop=True)
+        idx = idx[
+            idx["case_dir"].apply(
+                lambda d: os.path.exists(os.path.join(d, "fields.npz"))
+            )
+        ].reset_index(drop=True)
 
     if len(idx) == 0:
         raise ValueError(
-            "No Zarr files found on disk. Check dataset_root and case IDs."
+            "No NPZ case directories found on disk. Check dataset_root and case IDs."
         )
 
     # ---- terrain-grouped split to avoid leakage ----------------------------
@@ -512,16 +526,16 @@ def preprosess(
     val_idx = idx[idx["terrain_key"].isin(val_terrains)]
     test_idx = idx[idx["terrain_key"].isin(test_terrains)]
 
-    train_paths = train_idx["zarr_path"].tolist()
+    train_dirs = train_idx["case_dir"].tolist()
     train_ids = train_idx["case_id"].tolist()
-    val_paths = val_idx["zarr_path"].tolist()
+    val_dirs = val_idx["case_dir"].tolist()
     val_ids = val_idx["case_id"].tolist()
-    test_paths = test_idx["zarr_path"].tolist()
+    test_dirs = test_idx["case_dir"].tolist()
     test_ids = test_idx["case_id"].tolist()
 
     print(
         f"Dataset: {len(idx)} cases total  |  "
-        f"train={len(train_paths)}, val={len(val_paths)}, test={len(test_paths)}"
+        f"train={len(train_dirs)}, val={len(val_dirs)}, test={len(test_dirs)}"
     )
 
     # ---- validate crop compatibility ---------------------------------------
@@ -536,7 +550,7 @@ def preprosess(
 
     # ---- normalisation factors ---------------------------------------------
     os.makedirs(processed_data_folder, exist_ok=True)
-    norm_cache_path = os.path.join(processed_data_folder, "norm_factors_zarr.pkl")
+    norm_cache_path = os.path.join(processed_data_folder, "norm_factors_npz.pkl")
 
     if os.path.exists(norm_cache_path):
         with open(norm_cache_path, "rb") as f:
@@ -550,7 +564,7 @@ def preprosess(
     else:
         print("Computing normalisation factors from training cases (first run only)…")
         Z_MIN, Z_MAX, Z_ABOVE_GROUND_MAX, UVW_MAX, P_MIN, P_MAX = compute_norm_factors(
-            train_paths, crop_nx, crop_ny, crop_nk, include_pressure
+            train_dirs, crop_nx, crop_ny, crop_nk, include_pressure
         )
         with open(norm_cache_path, "wb") as f:
             pickle.dump(
@@ -587,7 +601,7 @@ def preprosess(
     )
 
     dataset_train = WindTerrainDataset(
-        train_paths,
+        train_dirs,
         train_ids,
         data_aug_rot=train_aug_rot,
         data_aug_flip=train_aug_flip,
@@ -596,7 +610,7 @@ def preprosess(
     )
 
     dataset_test = WindTerrainDataset(
-        test_paths,
+        test_dirs,
         test_ids,
         data_aug_rot=False,
         data_aug_flip=False,
@@ -605,7 +619,7 @@ def preprosess(
     )
 
     dataset_validation = WindTerrainDataset(
-        val_paths,
+        val_dirs,
         val_ids,
         data_aug_rot=val_aug_rot,
         data_aug_flip=val_aug_flip,
