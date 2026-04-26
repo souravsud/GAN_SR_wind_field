@@ -307,28 +307,28 @@ def reformat_to_torch(
 
     if include_z_channel:
         if include_above_ground_channel:
-            z_agl_norm = np.nan_to_num(
-                z_above_ground[np.newaxis, ::coarseness_factor, ::coarseness_factor, :]
-                / Z_ABOVE_GROUND_MAX,
-                nan=0.0,
+            z_agl_filled = np.where(np.isnan(z_above_ground), 0.0, z_above_ground)
+            z_agl_norm = (
+                z_agl_filled[np.newaxis, ::coarseness_factor, ::coarseness_factor, :]
+                / Z_ABOVE_GROUND_MAX
             )
-            z_abs_norm = np.nan_to_num(
-                (z - z_above_ground - Z_MIN)[
+            z_abs_filled = np.where(np.isnan(z - z_above_ground), Z_MIN, z - z_above_ground)
+            z_abs_norm = (
+                (z_abs_filled - Z_MIN)[
                     np.newaxis, ::coarseness_factor, ::coarseness_factor, :
                 ]
-                / (Z_MAX - Z_MIN - Z_ABOVE_GROUND_MAX),
-                nan=0.0,
+                / (Z_MAX - Z_MIN - Z_ABOVE_GROUND_MAX)
             )
             arr_norm_LR = np.concatenate(
                 (arr_norm_LR, z_agl_norm, z_abs_norm),
                 axis=0,
             )
-            del z_above_ground, z_agl_norm, z_abs_norm
+            del z_above_ground, z_agl_filled, z_agl_norm, z_abs_filled, z_abs_norm
         else:
-            z_norm = np.nan_to_num(
-                (z[np.newaxis, ::coarseness_factor, ::coarseness_factor, :] - Z_MIN)
-                / (Z_MAX - Z_MIN),
-                nan=0.0,
+            z_filled = np.where(np.isnan(z), Z_MIN, z)
+            z_norm = (
+                (z_filled[np.newaxis, ::coarseness_factor, ::coarseness_factor, :] - Z_MIN)
+                / (Z_MAX - Z_MIN)
             )
             arr_norm_LR = np.concatenate(
                 (arr_norm_LR, z_norm),
