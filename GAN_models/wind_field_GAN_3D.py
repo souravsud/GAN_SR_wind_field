@@ -130,6 +130,8 @@ class wind_field_GAN_3D(BaseGAN):
                 mode=cfg_D.layer_mode,
                 device=self.device,
                 number_of_z_layers=cfg_gan.number_of_z_layers,
+                input_nx=cfg_gan.crop_nx,
+                input_ny=cfg_gan.crop_ny,
                 conv_mode=cfg_gan.conv_mode,
                 use_mixed_precision=cfg_D.use_mixed_precision,
                 enable_slicing=cfg_gan.enable_slicing,
