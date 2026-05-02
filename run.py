@@ -267,12 +267,37 @@ def makedirs(path):
 
 def save_config(cfg: Config, folder: str):
     filename = folder + "/config.ini"
-    if cfg.env.discriminator_load_path == None:
-        cfg.env.discriminator_load_path = (
-            folder + "/D_" + str(cfg.training.niter) + ".pth"
-        )
-        cfg.env.generator_load_path = folder + "/G_" + str(cfg.training.niter) + ".pth"
-        cfg.env.state_load_path = folder + "/state_" + str(cfg.training.niter) + ".pth"
+    if cfg.env.discriminator_load_path is None:
+        if cfg.load_model_from_save:
+            # Auto-discover the latest saved checkpoint so resuming after an
+            # interrupted run doesn't require manually editing the config.
+            import glob as _glob
+            import re as _re
+            g_files = _glob.glob(folder + "/G_*.pth")
+            iters = []
+            for f in g_files:
+                m = _re.search(r"/G_(\d+)\.pth$", f)
+                if m:
+                    iters.append(int(m.group(1)))
+            if not iters:
+                raise FileNotFoundError(
+                    f"load_model_from_save=True but no G_*.pth checkpoints found in {folder!r}. "
+                    "Check that the runs folder path is correct and that a checkpoint exists."
+                )
+            latest_iter = max(iters)
+            cfg.env.generator_load_path = folder + f"/G_{latest_iter}.pth"
+            cfg.env.discriminator_load_path = folder + f"/D_{latest_iter}.pth"
+            cfg.env.state_load_path = folder + f"/state_{latest_iter}.pth"
+        else:
+            cfg.env.discriminator_load_path = (
+                folder + "/D_" + str(cfg.training.niter) + ".pth"
+            )
+            cfg.env.generator_load_path = (
+                folder + "/G_" + str(cfg.training.niter) + ".pth"
+            )
+            cfg.env.state_load_path = (
+                folder + "/state_" + str(cfg.training.niter) + ".pth"
+            )
     with open(filename, "w") as ini:
         ini.write(cfg.asINI())
 
