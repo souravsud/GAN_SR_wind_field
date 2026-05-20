@@ -60,6 +60,8 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
     if cfg.model.lower() == "wind_field_gan_3d":
         gan = wind_field_GAN_3D(cfg)
         status_logger.info(f"Making model wind_field_GAN_3D from config {cfg.name}")
+        G_params, D_params = gan.count_params()
+        status_logger.info(f"Model params - Generator: {G_params:,}, Discriminator: {D_params:,}")
     else:
         status_logger.info(
             f"only wind_field_GAN_2D (wind_field_GAN_2D) and wind_field_GAN_3D(wind_field_gan_3d) is supported at this time - not {cfg.name}"
