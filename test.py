@@ -17,6 +17,7 @@ import config.config as config
 from GAN_models.wind_field_GAN_3D import wind_field_GAN_3D, calculate_PSNR
 import iocomponents.displaybar as displaybar
 from download_data import reverse_interpolate_z_axis
+from tools.test_plotting import save_test_plots
 
 
 def test(cfg: config.Config, dataset_test, reverse_interpolate=False):
@@ -62,6 +63,7 @@ def test(cfg: config.Config, dataset_test, reverse_interpolate=False):
 
     if not os.path.exists(cfg.env.this_runs_folder + "/fields/"):
         os.makedirs(cfg.env.this_runs_folder + "/fields/")
+    os.makedirs(os.path.join(cfg.env.this_runs_folder, "plots"), exist_ok=True)
     if not os.path.exists("./test_output/"):
         os.makedirs("./test_output/")
     if not os.path.exists("./test_output/averages.csv"):
@@ -240,6 +242,15 @@ def test(cfg: config.Config, dataset_test, reverse_interpolate=False):
                     avg_wind_speed += HR_mean_wind_speed / niter
                     avg_old_pix += old_pix / niter
                     avg_old_pix_trilinear += old_pix_trilinear / niter
+
+                    save_test_plots(
+                        LR[i],
+                        HR[i],
+                        SR_i[0],
+                        interpolated_LR[i],
+                        cfg.env.this_runs_folder,
+                        str(filenames[i]),
+                    )
 
                     if j % cfg.training.log_period == 0:
                         write_fields(

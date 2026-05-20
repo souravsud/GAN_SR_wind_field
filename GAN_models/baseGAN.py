@@ -47,7 +47,11 @@ class BaseGAN(lc.GlobalLoggingClass):
             and not generator_load_path.lower() == "null"
             and not generator_load_path.lower() == "none"
         ):
-            self.G.load_state_dict(torch.load(generator_load_path, map_location="cpu"))
+            self.G.load_state_dict(
+                torch.load(
+                    generator_load_path, map_location="cpu", weights_only=True
+                )
+            )
             self.G.eval()
         if (
             not discriminator_load_path is None
@@ -55,7 +59,9 @@ class BaseGAN(lc.GlobalLoggingClass):
             and not discriminator_load_path.lower() == "none"
         ):
             self.D.load_state_dict(
-                torch.load(discriminator_load_path, map_location="cpu")
+                torch.load(
+                    discriminator_load_path, map_location="cpu", weights_only=True
+                )
             )
             self.G.eval()
         if (
@@ -63,7 +69,12 @@ class BaseGAN(lc.GlobalLoggingClass):
             and not state_load_path.lower() == "null"
             and not state_load_path.lower() == "none"
         ):
-            state = torch.load(state_load_path)
+            # weights_only=False is required here because the training state
+            # dict contains optimizer/scheduler state which includes non-tensor
+            # Python objects (e.g. dicts, lists). Only load from trusted paths.
+            state = torch.load(
+                state_load_path, map_location="cpu", weights_only=False
+            )
             loaded_optimizers = state["optimizers"]
             loaded_schedulers = state["schedulers"]
             assert len(loaded_optimizers) == len(
