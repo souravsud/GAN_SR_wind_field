@@ -12,4 +12,3 @@ GAN_models/OLD
 figures/
 test_output/
 .env/
-CLAUDE.md
