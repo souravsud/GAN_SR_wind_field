@@ -91,11 +91,14 @@ class wind_field_GAN_3D(BaseGAN):
         cfg_gan: config.GANConfig = cfg.gan_config
         # Effective z-dim after skipping: keep every (z_skip+1)-th layer.
         effective_nz = math.ceil(cfg_gan.number_of_z_layers / (cfg_gan.z_skip + 1))
+        # include_above_ground_channel adds a second z-channel only when
+        # include_z_channel is also True (it is nested inside that branch in
+        # reformat_to_torch); count it only in that combined case.
         self.G = Generator_3D(
             cfg_G.in_num_ch
             + cfg_gan.include_pressure
             + cfg_gan.include_z_channel
-            + cfg_gan.include_above_ground_channel,
+            + (cfg_gan.include_z_channel and cfg_gan.include_above_ground_channel),
             cfg_G.out_num_ch,
             cfg_G.num_features,
             cfg_G.num_RRDB,
