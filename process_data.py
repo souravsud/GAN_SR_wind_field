@@ -62,6 +62,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         enable_slicing=False,
         slice_size=64,
         terrain=None,
+        z_skip=0,
     ):
         self.case_dirs = case_dirs
         self.case_ids = case_ids
@@ -80,6 +81,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         self.crop_nx = crop_nx
         self.crop_ny = crop_ny
         self.crop_nk = crop_nk
+        self.z_skip = z_skip
         self.data_aug_rot = data_aug_rot
         self.data_aug_flip = data_aug_flip
         self.for_plotting = for_plotting
@@ -107,19 +109,14 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         maps = np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True)
         fields = np.load(os.path.join(case_dir, "fields.npz"))
 
+        # z_slice: take the lowest crop_nk layers then keep every (z_skip+1)-th.
+        z_slice = slice(None, self.crop_nk, self.z_skip + 1)
+
         dem = maps["dem"].astype(np.float32)[i_start:i_end, j_start:j_end]
-        h_agl = maps["h_agl"].astype(np.float32)[
-            i_start:i_end, j_start:j_end, : self.crop_nk
-        ]
-        Ux = fields["Ux"].astype(np.float32)[
-            i_start:i_end, j_start:j_end, : self.crop_nk
-        ]
-        Uy = fields["Uy"].astype(np.float32)[
-            i_start:i_end, j_start:j_end, : self.crop_nk
-        ]
-        Uz = fields["Uz"].astype(np.float32)[
-            i_start:i_end, j_start:j_end, : self.crop_nk
-        ]
+        h_agl = maps["h_agl"].astype(np.float32)[i_start:i_end, j_start:j_end, z_slice]
+        Ux = fields["Ux"].astype(np.float32)[i_start:i_end, j_start:j_end, z_slice]
+        Uy = fields["Uy"].astype(np.float32)[i_start:i_end, j_start:j_end, z_slice]
+        Uz = fields["Uz"].astype(np.float32)[i_start:i_end, j_start:j_end, z_slice]
         # Reconstruct absolute elevation from ground DEM + height-above-ground
         Z_abs = dem[:, :, np.newaxis] + h_agl
         # Pressure is not stored in the NPZ format
@@ -417,6 +414,7 @@ def preprosess(
     isDownload=False,
     dataset="wind_terrain",
     data_source=None,
+    z_skip=0,
     # Legacy parameters kept for interface compatibility
     Z_DICT=None,
     start_date=None,
@@ -598,6 +596,7 @@ def preprosess(
         crop_nx=crop_nx,
         crop_ny=crop_ny,
         crop_nk=crop_nk,
+        z_skip=z_skip,
     )
 
     dataset_train = WindTerrainDataset(

@@ -44,6 +44,9 @@ class GANConfig(IniConfig):
     use_D_feature_extractor_cost = False
     enable_slicing = False
     slice_size = 64
+    # z_skip=0 keeps all layers; z_skip=N skips N levels between each kept level
+    # (i.e. keeps every (N+1)-th layer starting from k=0).
+    z_skip: int = 0
 
     def setGANConfig(self, gan_config):
         self.include_pressure = gan_config.getboolean("include_pressure")
@@ -63,6 +66,7 @@ class GANConfig(IniConfig):
         )
         self.enable_slicing = gan_config.getboolean("enable_slicing")
         self.slice_size = gan_config.getint("slice_size")
+        self.z_skip = gan_config.getint("z_skip")
 
 
 class EnvConfig(IniConfig):

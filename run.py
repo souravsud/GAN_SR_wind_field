@@ -319,6 +319,7 @@ def prepare_data(cfg: Config):
         interpolate_z=cfg_gan.interpolate_z,
         enable_slicing=cfg_gan.enable_slicing,
         slice_size=cfg_gan.slice_size,
+        z_skip=cfg_gan.z_skip,
         train_aug_rot=cfg.dataset_train.data_aug_rot,
         train_aug_flip=cfg.dataset_train.data_aug_flip,
         val_aug_rot=cfg.dataset_val.data_aug_rot,
