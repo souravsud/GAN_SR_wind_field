@@ -252,6 +252,9 @@ class TrainingConfig(IniConfig):
     save_model_period: int = 2e3
     log_period: int = 1e2
 
+    record_memory_history: bool = False
+    memory_snapshot_iteration: int = 10
+
     def setTrainingConfig(self, train_config):
         self.resume_training_from_save = train_config.getboolean(
             "resume_training_from_save"
@@ -293,6 +296,8 @@ class TrainingConfig(IniConfig):
         self.conv_mode = train_config.get("conv_mode")
         self.train_eval_test_ratio = train_config.getfloat("train_eval_test_ratio")
         self.feature_D_update_period = train_config.getint("feature_D_update_period")
+        self.record_memory_history = train_config.getboolean("record_memory_history")
+        self.memory_snapshot_iteration = train_config.getint("memory_snapshot_iteration")
 
 
 class Config(IniConfig):

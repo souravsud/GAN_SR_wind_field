@@ -111,6 +111,14 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
     )
 
     status_logger.info(f"beginning run from epoch {start_epoch}, it {it}")
+
+    mem_history_active = cfg_t.record_memory_history and cfg.device.type == "cuda"
+    if mem_history_active:
+        torch.cuda.memory._record_memory_history(max_entries=100_000)
+        status_logger.info(
+            f"CUDA memory history recording enabled; snapshot at it={cfg_t.memory_snapshot_iteration}"
+        )
+
     with torch.profiler.profile(
         schedule=torch.profiler.schedule(wait=2, warmup=2, active=6, repeat=1),
         on_trace_ready=torch.profiler.tensorboard_trace_handler(
@@ -150,6 +158,15 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
                 gan.optimize_parameters(LR, HR, Z, it)
 
                 profiler.step()
+
+                if mem_history_active and it == cfg_t.memory_snapshot_iteration:
+                    snapshot_path = os.path.join(
+                        cfg.env.this_runs_folder, f"memory_snapshot_it{it}.pickle"
+                    )
+                    torch.cuda.memory._dump_snapshot(snapshot_path)
+                    torch.cuda.memory._record_memory_history(enabled=None)
+                    mem_history_active = False
+                    status_logger.info(f"CUDA memory snapshot saved to {snapshot_path}")
 
                 gan.update_learning_rate() if it > 2 * cfg_t.d_g_train_period else None
 
