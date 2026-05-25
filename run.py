@@ -183,7 +183,6 @@ def safe_setup_env_and_cfg(cfg: Config) -> bool:
     cfg.env.root_path = os.path.abspath(os.path.dirname(__file__))
     cfg.env.download_folder = cfg.env.root_path + cfg.env.data_path + cfg.env.download_path
     cfg.env.processed_data_folder = cfg.env.root_path + cfg.env.data_path + cfg.env.processed_data_path
-    cfg.env.interpolated_z_data_folder = cfg.env.root_path + cfg.env.data_path + cfg.env.interpolated_z_data_path
     cfg.env.log_folder = cfg.env.root_path + cfg.env.log_subpath
     cfg.env.tensorboard_log_folder = cfg.env.root_path + cfg.env.tensorboard_subpath
     cfg.env.status_log_file = cfg.env.log_folder + "/" + cfg.name + ".log"
@@ -195,14 +194,8 @@ def safe_setup_env_and_cfg(cfg: Config) -> bool:
 
     makedirs(cfg.env.log_folder)
     makedirs(cfg.env.tensorboard_log_folder)
-    [
-        makedirs(path)
-        for path in [
-            cfg.env.download_folder,
-            cfg.env.processed_data_folder,
-            cfg.env.interpolated_z_data_folder,
-        ]
-    ]
+    makedirs(cfg.env.download_folder)
+    makedirs(cfg.env.processed_data_folder)
     makedirs(cfg.env.this_runs_folder + "/images")
     makedirs(cfg.env.this_runs_tensorboard_log_folder)
     setup_seed(cfg.env.fixed_seed)
@@ -316,7 +309,6 @@ def prepare_data(cfg: Config):
         include_pressure=cfg_gan.include_pressure,
         include_z_channel=cfg_gan.include_z_channel,
         include_above_ground_channel=cfg_gan.include_above_ground_channel,
-        interpolate_z=cfg_gan.interpolate_z,
         enable_slicing=cfg_gan.enable_slicing,
         slice_size=cfg_gan.slice_size,
         z_skip=cfg_gan.z_skip,
@@ -326,7 +318,6 @@ def prepare_data(cfg: Config):
         val_aug_flip=cfg.dataset_val.data_aug_flip,
         train_eval_test_ratio=cfg.training.train_eval_test_ratio,
         COARSENESS_FACTOR=cfg.scale,
-        isDownload=cfg.is_download,
         dataset=cfg.env.dataset,
         data_source=cfg.env.data_source,
     )

@@ -2,7 +2,6 @@
 process_data.py
 NPZ-based Wind-Terrain CFD dataset loading.
 Each simulation case is a directory containing maps.npz and fields.npz.
-Replaces the previous Zarr/NetCDF pipeline.
 """
 
 import json
@@ -421,17 +420,11 @@ def preprosess(
     val_aug_rot=False,
     val_aug_flip=False,
     for_plotting=False,
-    isDownload=False,
     dataset="wind_terrain",
     data_source=None,
     z_skip=0,
     enable_slicing=False,
     slice_size=64,
-    # Legacy parameters kept for interface compatibility with the old NetCDF pipeline
-    Z_DICT=None,
-    start_date=None,
-    end_date=None,
-    interpolate_z=False,
 ):
     """Prepare train / validation / test datasets from the NPZ CFD dataset.
 
