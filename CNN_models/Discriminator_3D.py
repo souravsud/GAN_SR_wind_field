@@ -6,6 +6,7 @@ Apache License
 Implements VGG-style discriminator for 3D data
 """
 
+import torch
 import torch.nn as nn
 
 from CNN_models.torch_blocks import create_discriminator_block, create_conv_lrelu_layer
@@ -28,9 +29,10 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
         normalization_type: str = "batch",
         act_type: str = "leakyrelu",
         mode="CNA",
-        # device=torch.device("mps" if torch.backends.mps.is_available() else "cpu"),
         device="cpu",
         number_of_z_layers=10,
+        input_nx: int = 64,
+        input_ny: int = 64,
         conv_mode: str = "3D",
         use_mixed_precision: bool = False,
         enable_slicing: bool = False,
@@ -50,7 +52,6 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
             slope = 0.2
 
         features = []
-        # self.scaler = torch.cuda.amp.GradScaler(enabled=use_mixed_precision)
 
         remainder_z_layers = [number_of_z_layers]
         for i in range(5):
@@ -106,7 +107,7 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
             )
         )
         if not enable_slicing:
-            # 16x16x10 -> 8x8x10
+            # 8x8x10 -> 4x4x10
             features.append(
                 create_discriminator_block(
                     base_number_of_features * 4,
@@ -120,7 +121,7 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
                     mode=conv_mode,
                 )
             )
-            # 8x8x10 -> 4x4x5
+            # 4x4x10 -> 2x2x5
             features.append(
                 create_discriminator_block(
                     base_number_of_features * 8,
@@ -149,7 +150,6 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
                     mode=conv_mode,
                 )
             )
-            # 8x8x10 -> 4x4x5
             features.append(
                 create_conv_lrelu_layer(
                     base_number_of_features * 8,
@@ -168,13 +168,6 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
                 )
             )
 
-        classifier = []
-        classifier.append(
-            nn.Linear(base_number_of_features * 8 * 4 * 4 * remainder_z_layers[5], 100)
-        )
-        classifier.append(nn.LeakyReLU(negative_slope=slope))
-        classifier.append(nn.Linear(100, 1))
-
         self.dropout = (
             nn.Dropout2d(p=dropout_probability)
             if conv_mode == "2D"
@@ -182,12 +175,31 @@ class Discriminator_3D(nn.Module, lc.GlobalLoggingClass):
         )
 
         self.features = nn.Sequential(*features)
+
+        # Dynamically compute the flattened size by running a dummy forward pass
+        with torch.no_grad():
+            dummy = torch.zeros(1, in_channels, input_nx, input_ny, number_of_z_layers)
+            flat_size = self.dropout(self.features(dummy)).reshape(1, -1).shape[1]
+
+        classifier = []
+        classifier.append(nn.Linear(flat_size, 100))
+        classifier.append(nn.LeakyReLU(negative_slope=slope))
+        classifier.append(nn.Linear(100, 1))
+
         self.classifier = nn.Sequential(*classifier)
 
         self.status_logs.append(f"Discriminator: finished init")
 
     def forward(self, x):
         x = self.dropout(self.features(x))
-        # flatten
         x = x.reshape(x.shape[0], -1)
+        # Lazily rebuild classifier if flat size doesn't match
+        if x.shape[1] != self.classifier[0].in_features:
+            slope = self.classifier[1].negative_slope
+            device = x.device
+            self.classifier = nn.Sequential(
+                nn.Linear(x.shape[1], 100),
+                nn.LeakyReLU(negative_slope=slope),
+                nn.Linear(100, 1),
+            ).to(device)
         return self.classifier(x)

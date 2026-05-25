@@ -28,17 +28,25 @@ class IniConfig:
 
 
 class GANConfig(IniConfig):
-    include_pressure: bool = True
+    include_pressure: bool = False
     include_z_channel: bool = True
     include_above_ground_channel: bool = False
-    number_of_z_layers: int = 10
+    number_of_z_layers: int = 64
     conv_mode: str = "3D"
-    start_date = [2018, 4, 1]
-    end_date = [2018, 4, 4]
+    # Sample range selection (1-based, inclusive)
+    sample_start: int = 1
+    sample_end: int = 100
+    # Spatial/vertical crop controls (full domain: 300x300x64)
+    crop_nx: int = 300
+    crop_ny: int = 300
+    # number_of_z_layers also controls vertical crop (keep lowest k layers)
     interpolate_z: bool = False
     use_D_feature_extractor_cost = False
     enable_slicing = False
     slice_size = 64
+    # z_skip=0 keeps all layers; z_skip=N skips N levels between each kept level
+    # (i.e. keeps every (N+1)-th layer starting from k=0).
+    z_skip: int = 0
 
     def setGANConfig(self, gan_config):
         self.include_pressure = gan_config.getboolean("include_pressure")
@@ -48,14 +56,17 @@ class GANConfig(IniConfig):
         )
         self.number_of_z_layers = gan_config.getint("number_of_z_layers")
         self.conv_mode = gan_config.get("conv_mode")
-        self.start_date = safe_list_from_string(gan_config.get("start_date"), int)
-        self.end_date = safe_list_from_string(gan_config.get("end_date"), int)
+        self.sample_start = gan_config.getint("sample_start")
+        self.sample_end = gan_config.getint("sample_end")
+        self.crop_nx = gan_config.getint("crop_nx")
+        self.crop_ny = gan_config.getint("crop_ny")
         self.interpolate_z = gan_config.getboolean("interpolate_z")
         self.use_D_feature_extractor_cost = gan_config.getboolean(
             "use_D_feature_extractor_cost"
         )
         self.enable_slicing = gan_config.getboolean("enable_slicing")
         self.slice_size = gan_config.getint("slice_size")
+        self.z_skip = gan_config.getint("z_skip")
 
 
 class EnvConfig(IniConfig):
@@ -241,6 +252,9 @@ class TrainingConfig(IniConfig):
     save_model_period: int = 2e3
     log_period: int = 1e2
 
+    record_memory_history: bool = False
+    memory_snapshot_iteration: int = 10
+
     def setTrainingConfig(self, train_config):
         self.resume_training_from_save = train_config.getboolean(
             "resume_training_from_save"
@@ -282,6 +296,8 @@ class TrainingConfig(IniConfig):
         self.conv_mode = train_config.get("conv_mode")
         self.train_eval_test_ratio = train_config.getfloat("train_eval_test_ratio")
         self.feature_D_update_period = train_config.getint("feature_D_update_period")
+        self.record_memory_history = train_config.getboolean("record_memory_history")
+        self.memory_snapshot_iteration = train_config.getint("memory_snapshot_iteration")
 
 
 class Config(IniConfig):

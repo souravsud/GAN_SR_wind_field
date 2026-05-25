@@ -60,6 +60,8 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
     if cfg.model.lower() == "wind_field_gan_3d":
         gan = wind_field_GAN_3D(cfg)
         status_logger.info(f"Making model wind_field_GAN_3D from config {cfg.name}")
+        G_params, D_params = gan.count_params()
+        status_logger.info(f"Model params - Generator: {G_params:,}, Discriminator: {D_params:,}")
     else:
         status_logger.info(
             f"only wind_field_GAN_2D (wind_field_GAN_2D) and wind_field_GAN_3D(wind_field_gan_3d) is supported at this time - not {cfg.name}"
@@ -109,6 +111,14 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
     )
 
     status_logger.info(f"beginning run from epoch {start_epoch}, it {it}")
+
+    mem_history_active = cfg_t.record_memory_history and cfg.device.type == "cuda"
+    if mem_history_active:
+        torch.cuda.memory._record_memory_history(max_entries=100_000)
+        status_logger.info(
+            f"CUDA memory history recording enabled; snapshot at it={cfg_t.memory_snapshot_iteration}"
+        )
+
     with torch.profiler.profile(
         schedule=torch.profiler.schedule(wait=2, warmup=2, active=6, repeat=1),
         on_trace_ready=torch.profiler.tensorboard_trace_handler(
@@ -119,7 +129,7 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
         record_shapes=True,
     ) as profiler:
         for epoch in range(start_epoch, count_train_epochs):
-            status_logger.debug("epoch {epoch}")
+            status_logger.debug(f"epoch {epoch}")
 
             # dataloader -> (LR, HR, HR_img_name)
 
@@ -148,6 +158,15 @@ def train(cfg: config.Config, dataset_train, dataset_validation, x, y):
                 gan.optimize_parameters(LR, HR, Z, it)
 
                 profiler.step()
+
+                if mem_history_active and it == cfg_t.memory_snapshot_iteration:
+                    snapshot_path = os.path.join(
+                        cfg.env.this_runs_folder, f"memory_snapshot_it{it}.pickle"
+                    )
+                    torch.cuda.memory._dump_snapshot(snapshot_path)
+                    torch.cuda.memory._record_memory_history(enabled=None)
+                    mem_history_active = False
+                    status_logger.info(f"CUDA memory snapshot saved to {snapshot_path}")
 
                 gan.update_learning_rate() if it > 2 * cfg_t.d_g_train_period else None
 
@@ -388,7 +407,7 @@ def create_error_figure(
     average_SR_error,
     average_TL_error,
 ):
-    sm = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("viridis"))
+    sm = plt.cm.ScalarMappable(cmap="viridis")
     vmin, vmax = np.min(wind_comp_HR[:, :, wind_height_index]), np.max(
         wind_comp_HR[:, :, wind_height_index]
     )
@@ -432,9 +451,9 @@ def create_error_figure(
     )
     vmin_abs_error, vmax_abs_error = 0.0, max(abs(vmax_error), abs(vmin_error))
     sm.set_clim(vmin=vmin, vmax=vmax)
-    sm_error = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("coolwarm"))
+    sm_error = plt.cm.ScalarMappable(cmap="coolwarm")
     sm_error.set_clim(vmin=vmin_error, vmax=vmax_error)
-    sm_abs_error = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("jet"))
+    sm_abs_error = plt.cm.ScalarMappable(cmap="jet")
     sm_abs_error.set_clim(vmin=vmin_abs_error, vmax=vmax_abs_error)
 
     fig2, axes2 = plt.subplots(2, 3, figsize=(12, 6), sharey=True, sharex=True)
@@ -549,7 +568,7 @@ def create_comparison_figure(
     axes[1, 0].set_title("TL")
     fig.subplots_adjust(hspace=0.3)
 
-    sm = plt.cm.ScalarMappable(cmap=plt.cm.get_cmap("viridis"))
+    sm = plt.cm.ScalarMappable(cmap="viridis")
     sm.set_clim(vmin=vmin, vmax=vmax)
     fig.colorbar(sm, ax=axes)
     return fig
