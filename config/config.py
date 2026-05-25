@@ -2,7 +2,7 @@ from configparser import ConfigParser
 import ast
 
 """
-process_data.py
+config.py
 Originally written by Eirik Vesterkjær 2019, edited by Jacob Wulff Wold 2023
 Apache License
 
@@ -40,7 +40,6 @@ class GANConfig(IniConfig):
     crop_nx: int = 300
     crop_ny: int = 300
     # number_of_z_layers also controls vertical crop (keep lowest k layers)
-    interpolate_z: bool = False
     use_D_feature_extractor_cost = False
     enable_slicing = False
     slice_size = 64
@@ -60,7 +59,6 @@ class GANConfig(IniConfig):
         self.sample_end = gan_config.getint("sample_end")
         self.crop_nx = gan_config.getint("crop_nx")
         self.crop_ny = gan_config.getint("crop_ny")
-        self.interpolate_z = gan_config.getboolean("interpolate_z")
         self.use_D_feature_extractor_cost = gan_config.getboolean(
             "use_D_feature_extractor_cost"
         )
@@ -86,7 +84,6 @@ class EnvConfig(IniConfig):
         self.data_path = env_config.get("data_path")
         self.download_path = env_config.get("download_path")
         self.processed_data_path = env_config.get("processed_data_path")
-        self.interpolated_z_data_path = env_config.get("interpolated_z_data_path")
         self.log_subpath = env_config.get("log_subpath")
         self.tensorboard_subpath = env_config.get("tensorboard_subpath")
         self.runs_subpath = env_config.get("runs_subpath")
@@ -293,7 +290,6 @@ class TrainingConfig(IniConfig):
         self.val_period = train_config.getint("val_period")
         self.save_model_period = train_config.getint("save_model_period")
         self.log_period = train_config.getint("log_period")
-        self.conv_mode = train_config.get("conv_mode")
         self.train_eval_test_ratio = train_config.getfloat("train_eval_test_ratio")
         self.feature_D_update_period = train_config.getint("feature_D_update_period")
         self.record_memory_history = train_config.getboolean("record_memory_history")
