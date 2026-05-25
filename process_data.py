@@ -58,7 +58,6 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         data_aug_flip=True,
         for_plotting=False,
         is_test=False,
-        # Legacy parameters kept for interface compatibility
         enable_slicing=False,
         slice_size=64,
         terrain=None,
@@ -86,6 +85,8 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         self.data_aug_flip = data_aug_flip
         self.for_plotting = for_plotting
         self.is_test = is_test
+        self.enable_slicing = enable_slicing
+        self.slice_size = slice_size
 
     # ------------------------------------------------------------------
     # Dataset protocol
@@ -95,14 +96,23 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         return len(self.case_dirs)
 
     def __getitem__(self, index):
-        # ---- crop indices --------------------------------------------------
-        # Full domain: ni=300, nj=300, nk=64.  Centre crop in i/j; keep
-        # the lowest crop_nk layers from the ground (k=0 is the ground layer).
+        # ---- crop / slice indices ------------------------------------------
+        # Full domain: ni=300, nj=300, nk=64.  Keep the lowest crop_nk layers
+        # (k=0 is ground).
+        # Without slicing: fixed centre crop to (crop_nx, crop_ny).
+        # With slicing: random (slice_size, slice_size) window drawn from
+        #   Beta(0.25, 0.25) so corners and centre are sampled more often.
         ni, nj = 300, 300
-        i_start = (ni - self.crop_nx) // 2
-        i_end = i_start + self.crop_nx
-        j_start = (nj - self.crop_ny) // 2
-        j_end = j_start + self.crop_ny
+        if self.enable_slicing:
+            i_start = round(np.random.beta(0.25, 0.25) * (ni - self.slice_size))
+            j_start = round(np.random.beta(0.25, 0.25) * (nj - self.slice_size))
+            i_end = i_start + self.slice_size
+            j_end = j_start + self.slice_size
+        else:
+            i_start = (ni - self.crop_nx) // 2
+            i_end = i_start + self.crop_nx
+            j_start = (nj - self.crop_ny) // 2
+            j_end = j_start + self.crop_ny
 
         # ---- load from NPZ -------------------------------------------------
         case_dir = self.case_dirs[index]
@@ -415,13 +425,13 @@ def preprosess(
     dataset="wind_terrain",
     data_source=None,
     z_skip=0,
-    # Legacy parameters kept for interface compatibility
+    enable_slicing=False,
+    slice_size=64,
+    # Legacy parameters kept for interface compatibility with the old NetCDF pipeline
     Z_DICT=None,
     start_date=None,
     end_date=None,
     interpolate_z=False,
-    enable_slicing=False,
-    slice_size=64,
 ):
     """Prepare train / validation / test datasets from the NPZ CFD dataset.
 
@@ -436,9 +446,19 @@ def preprosess(
         Last sample to use (1-based row index, inclusive).
     crop_nx, crop_ny : int
         Number of horizontal cells to keep after centre-cropping (must be
-        divisible by ``COARSENESS_FACTOR``).
+        divisible by ``COARSENESS_FACTOR``). Ignored when ``enable_slicing``
+        is True (the test dataset still centre-crops to this size).
     crop_nk : int
         Number of vertical layers to keep from the ground up (k=0 is ground).
+    enable_slicing : bool
+        If True, train and validation datasets return a randomly positioned
+        ``slice_size × slice_size`` horizontal window instead of a fixed
+        centre crop. The window is drawn from Beta(0.25, 0.25) so corners
+        and centre are sampled more often. The test dataset always uses a
+        fixed centre crop regardless of this flag.
+    slice_size : int
+        Side length of the spatial window when ``enable_slicing`` is True.
+        Must be divisible by ``COARSENESS_FACTOR``.
     """
     # Resolve dataset root
     dataset_root = data_source if data_source else destination_folder
@@ -536,7 +556,7 @@ def preprosess(
         f"train={len(train_dirs)}, val={len(val_dirs)}, test={len(test_dirs)}"
     )
 
-    # ---- validate crop compatibility ---------------------------------------
+    # ---- validate crop / slice compatibility --------------------------------
     assert crop_nx % COARSENESS_FACTOR == 0, (
         f"crop_nx={crop_nx} must be divisible by scale factor "
         f"COARSENESS_FACTOR={COARSENESS_FACTOR}"
@@ -545,6 +565,11 @@ def preprosess(
         f"crop_ny={crop_ny} must be divisible by scale factor "
         f"COARSENESS_FACTOR={COARSENESS_FACTOR}"
     )
+    if enable_slicing:
+        assert slice_size % COARSENESS_FACTOR == 0, (
+            f"slice_size={slice_size} must be divisible by scale factor "
+            f"COARSENESS_FACTOR={COARSENESS_FACTOR}"
+        )
 
     # ---- normalisation factors ---------------------------------------------
     os.makedirs(processed_data_folder, exist_ok=True)
@@ -576,6 +601,10 @@ def preprosess(
         )
 
     # ---- coordinate arrays (regular ~30 m resolution grid) ----------------
+    # When slicing is enabled, train/val output slice_size × slice_size patches,
+    # so the returned x/y used for gradient computation must have that length.
+    # The test dataset always centre-crops to crop_nx × crop_ny, but x/y are
+    # only used during training, so this is consistent.
     x = np.arange(crop_nx, dtype=np.float32) * 30.0
     y = np.arange(crop_ny, dtype=np.float32) * 30.0
 
@@ -605,6 +634,8 @@ def preprosess(
         data_aug_rot=train_aug_rot,
         data_aug_flip=train_aug_flip,
         for_plotting=for_plotting,
+        enable_slicing=enable_slicing,
+        slice_size=slice_size,
         **common_kwargs,
     )
 
@@ -622,15 +653,20 @@ def preprosess(
         val_ids,
         data_aug_rot=val_aug_rot,
         data_aug_flip=val_aug_flip,
+        enable_slicing=enable_slicing,
+        slice_size=slice_size,
         **common_kwargs,
     )
+
+    x_out = x[:slice_size] if enable_slicing else x
+    y_out = y[:slice_size] if enable_slicing else y
 
     return (
         dataset_train,
         dataset_test,
         dataset_validation,
-        torch.from_numpy(x).float(),
-        torch.from_numpy(y).float(),
+        torch.from_numpy(x_out).float(),
+        torch.from_numpy(y_out).float(),
         sample_start,
         sample_end,
     )
