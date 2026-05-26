@@ -117,7 +117,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
             maps = {k: v.numpy() for k, v in torch.load(maps_pt, map_location="cpu", weights_only=True).items()}
             fields = {k: v.numpy() for k, v in torch.load(os.path.join(pt_case_dir, "fields.pt"), map_location="cpu", weights_only=True).items()}
         else:
-            maps = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True).items()}
+            maps = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True).items() if np.asarray(v).dtype.kind in ("f", "i", "u")}
             fields = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "fields.npz")).items()}
         return maps, fields
 
@@ -442,7 +442,11 @@ def _convert_one_case(args):
     maps = np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True)
     fields = np.load(os.path.join(case_dir, "fields.npz"))
     torch.save(
-        {k: torch.from_numpy(np.asarray(v).astype(np.float32)) for k, v in maps.items()},
+        {
+            k: torch.from_numpy(np.asarray(v).astype(np.float32))
+            for k, v in maps.items()
+            if np.asarray(v).dtype.kind in ("f", "i", "u")
+        },
         maps_pt,
     )
     torch.save(
