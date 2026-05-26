@@ -8,11 +8,13 @@ import json
 import os
 import re
 import pickle
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.utils.data
+from tqdm import tqdm
 
 # Reference velocity used by all simulations (m/s)
 REFERENCE_VELOCITY = 10.0
@@ -61,6 +63,8 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         slice_size=64,
         terrain=None,
         z_skip=0,
+        pt_cache_path=None,
+        preload_to_ram=False,
     ):
         self.case_dirs = case_dirs
         self.case_ids = case_ids
@@ -86,6 +90,14 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         self.is_test = is_test
         self.enable_slicing = enable_slicing
         self.slice_size = slice_size
+        self.pt_cache_path = pt_cache_path
+        self._cache = None
+        if preload_to_ram:
+            print(f"Preloading {len(case_dirs)} cases to RAM...")
+            self._cache = [
+                self._load_case(d, i)
+                for d, i in tqdm(zip(case_dirs, case_ids), total=len(case_dirs), desc="Preloading")
+            ]
 
     # ------------------------------------------------------------------
     # Dataset protocol
@@ -93,6 +105,21 @@ class WindTerrainDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.case_dirs)
+
+    def _load_case(self, case_dir, case_id):
+        """Load maps and fields for one case, using PT files if available."""
+        if self.pt_cache_path:
+            pt_case_dir = os.path.join(self.pt_cache_path, "data", case_id)
+        else:
+            pt_case_dir = case_dir
+        maps_pt = os.path.join(pt_case_dir, "maps.pt")
+        if os.path.exists(maps_pt):
+            maps = {k: v.numpy() for k, v in torch.load(maps_pt, map_location="cpu", weights_only=True).items()}
+            fields = {k: v.numpy() for k, v in torch.load(os.path.join(pt_case_dir, "fields.pt"), map_location="cpu", weights_only=True).items()}
+        else:
+            maps = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True).items()}
+            fields = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "fields.npz")).items()}
+        return maps, fields
 
     def __getitem__(self, index):
         # ---- crop / slice indices ------------------------------------------
@@ -113,10 +140,12 @@ class WindTerrainDataset(torch.utils.data.Dataset):
             j_start = (nj - self.crop_ny) // 2
             j_end = j_start + self.crop_ny
 
-        # ---- load from NPZ -------------------------------------------------
+        # ---- load case data (PT if available, else NPZ) --------------------
         case_dir = self.case_dirs[index]
-        maps = np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True)
-        fields = np.load(os.path.join(case_dir, "fields.npz"))
+        if self._cache is not None:
+            maps, fields = self._cache[index]
+        else:
+            maps, fields = self._load_case(case_dir, self.case_ids[index])
 
         # z_slice: take the lowest crop_nk layers then keep every (z_skip+1)-th.
         z_slice = slice(None, self.crop_nk, self.z_skip + 1)
@@ -398,6 +427,62 @@ def compute_norm_factors(case_dirs, crop_nx, crop_ny, crop_nk, include_pressure)
 
 
 # ---------------------------------------------------------------------------
+# NPZ → PT conversion (run once before training for faster data loading)
+# ---------------------------------------------------------------------------
+
+
+def _convert_one_case(args):
+    """Worker: convert a single case's NPZ files to uncompressed PT tensors."""
+    case_dir, pt_case_dir = args
+    maps_pt = os.path.join(pt_case_dir, "maps.pt")
+    fields_pt = os.path.join(pt_case_dir, "fields.pt")
+    if os.path.exists(maps_pt) and os.path.exists(fields_pt):
+        return
+    os.makedirs(pt_case_dir, exist_ok=True)
+    maps = np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True)
+    fields = np.load(os.path.join(case_dir, "fields.npz"))
+    torch.save(
+        {k: torch.from_numpy(np.asarray(v).astype(np.float32)) for k, v in maps.items()},
+        maps_pt,
+    )
+    torch.save(
+        {k: torch.from_numpy(np.asarray(v).astype(np.float32)) for k, v in fields.items()},
+        fields_pt,
+    )
+
+
+def convert_npz_to_pt(data_source, pt_cache_path, sample_start, sample_end, num_workers):
+    """Convert NPZ case files to uncompressed PT tensors for faster data loading.
+
+    Saves maps.pt and fields.pt alongside (or under pt_cache_path) for every
+    case in the given sample range. Already-converted cases are skipped.
+    """
+    data_dir = os.path.join(data_source, "data")
+    case_index_path = os.path.join(data_source, "case_index.csv")
+    if not os.path.exists(case_index_path):
+        fallback = os.path.join(data_source, "metadata", "case_index.csv")
+        if os.path.exists(fallback):
+            case_index_path = fallback
+        else:
+            raise FileNotFoundError(f"case_index.csv not found at {case_index_path}")
+
+    idx = pd.read_csv(case_index_path)
+    idx = idx.iloc[sample_start - 1 : sample_end].reset_index(drop=True)
+    idx = idx[idx["converged"] & idx["mesh_mesh_ok"]].reset_index(drop=True)
+
+    pt_data_dir = os.path.join(pt_cache_path, "data") if pt_cache_path else data_dir
+
+    args = [
+        (os.path.join(data_dir, cid), os.path.join(pt_data_dir, cid))
+        for cid in idx["case_id"]
+    ]
+
+    print(f"Converting {len(args)} cases  {data_dir} → {pt_data_dir}")
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        list(tqdm(executor.map(_convert_one_case, args), total=len(args), desc="NPZ→PT"))
+
+
+# ---------------------------------------------------------------------------
 # Main entry point called by run.py
 # ---------------------------------------------------------------------------
 
@@ -425,6 +510,8 @@ def preprosess(
     z_skip=0,
     enable_slicing=False,
     slice_size=64,
+    pt_cache_path=None,
+    preload_to_ram=False,
 ):
     """Prepare train / validation / test datasets from the NPZ CFD dataset.
 
@@ -629,6 +716,8 @@ def preprosess(
         for_plotting=for_plotting,
         enable_slicing=enable_slicing,
         slice_size=slice_size,
+        pt_cache_path=pt_cache_path,
+        preload_to_ram=preload_to_ram,
         **common_kwargs,
     )
 
@@ -638,6 +727,7 @@ def preprosess(
         data_aug_rot=False,
         data_aug_flip=False,
         is_test=True,
+        pt_cache_path=pt_cache_path,
         **common_kwargs,
     )
 
@@ -648,6 +738,8 @@ def preprosess(
         data_aug_flip=val_aug_flip,
         enable_slicing=enable_slicing,
         slice_size=slice_size,
+        pt_cache_path=pt_cache_path,
+        preload_to_ram=preload_to_ram,
         **common_kwargs,
     )
 

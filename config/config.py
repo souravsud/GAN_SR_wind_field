@@ -46,6 +46,7 @@ class GANConfig(IniConfig):
     # z_skip=0 keeps all layers; z_skip=N skips N levels between each kept level
     # (i.e. keeps every (N+1)-th layer starting from k=0).
     z_skip: int = 0
+    preload_to_ram: bool = False
 
     def setGANConfig(self, gan_config):
         self.include_pressure = gan_config.getboolean("include_pressure")
@@ -65,6 +66,7 @@ class GANConfig(IniConfig):
         self.enable_slicing = gan_config.getboolean("enable_slicing")
         self.slice_size = gan_config.getint("slice_size")
         self.z_skip = gan_config.getint("z_skip")
+        self.preload_to_ram = gan_config.getboolean("preload_to_ram")
 
 
 class EnvConfig(IniConfig):
@@ -93,6 +95,8 @@ class EnvConfig(IniConfig):
         self.fixed_seed = env_config.getint("fixed_seed")
         self.dataset = env_config.get("dataset")
         self.data_source = env_config.get("data_source")
+        raw_pt = env_config.get("pt_cache_path")
+        self.pt_cache_path = raw_pt if raw_pt else None
 
 
 class GeneratorConfig(IniConfig):
