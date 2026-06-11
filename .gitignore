@@ -13,3 +13,4 @@ figures/
 test_output/
 .env/
 CLAUDE.md
+architecture_notes.txt
