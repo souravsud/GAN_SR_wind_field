@@ -172,16 +172,15 @@ def test(cfg: config.Config, dataset_test):
                         str(filenames[i]),
                     )
 
-                    if j % cfg.training.log_period == 0:
-                        write_fields(
-                            LR[i],
-                            HR[i],
-                            SR_i[0],
-                            interpolated_LR[i],
-                            Z[i],
-                            cfg.env.this_runs_folder,
-                            filenames[i],
-                        )
+                    write_fields(
+                        LR[i],
+                        HR[i],
+                        SR_i[0],
+                        interpolated_LR[i],
+                        Z[i],
+                        cfg.env.this_runs_folder,
+                        filenames[i],
+                    )
         with open("./test_output/averages.csv", "a") as f:
             f.write(
                 f"{cfg.name},{avg_PSNR}, {avg_PSNR_trilinear}, {avg_pix}, {avg_pix_trilinear}, {avg_relative_error}, {avg_relative_error_trilinear}, {avg_wind_speed}, {avg_old_pix}, {avg_old_pix_trilinear}\n"

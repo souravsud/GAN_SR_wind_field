@@ -21,7 +21,7 @@ import numpy as np
 from config.config import Config
 from train import train
 from test import test
-from process_data import preprosess
+from process_data import preprosess, convert_npz_to_pt
 from param_search import param_search
 
 
@@ -33,11 +33,24 @@ def main():
         and not cfg.is_use
         and not cfg.is_download
         and not cfg.is_param_search
+        and not cfg.is_convert_to_pt
     ):
         print(
             "pass either --test, --download, --use or --train as args, and optionally --cfg path/to/config.ini if coconfig/wind_field_GAN_3D_config_local.ini isn't what you're planning on using."
         )
         return
+
+    if cfg.is_convert_to_pt:
+        num_workers = cfg.dataset_train.num_workers if cfg.dataset_train else 4
+        convert_npz_to_pt(
+            data_source=cfg.env.data_source,
+            pt_cache_path=cfg.env.pt_cache_path,
+            sample_start=cfg.gan_config.sample_start,
+            sample_end=cfg.gan_config.sample_end,
+            num_workers=num_workers,
+        )
+        if not (cfg.is_train or cfg.is_test):
+            return
 
     setup_ok: bool = safe_setup_env_and_cfg(cfg)
     if not setup_ok:
@@ -138,6 +151,12 @@ def argv_to_cfg() -> Config:
         action="store_true",
         help="Only downloads data, does not train or test",
     )
+    parser.add_argument(
+        "--convert_to_pt",
+        default=False,
+        action="store_true",
+        help="Convert NPZ dataset to uncompressed PT files for faster data loading",
+    )
 
     parser.add_argument(
         "--loglevel",
@@ -159,6 +178,7 @@ def argv_to_cfg() -> Config:
     is_use = args.use
     is_download = args.download
     is_param_search = args.param_search
+    is_convert_to_pt = args.convert_to_pt
     cfg_path = args.cfg
     slurm_array_id = args.slurm_array_id
 
@@ -174,6 +194,7 @@ def argv_to_cfg() -> Config:
     cfg.is_train = is_train
     cfg.is_download = is_download
     cfg.is_param_search = is_param_search
+    cfg.is_convert_to_pt = is_convert_to_pt
     cfg.slurm_array_id = slurm_array_id
 
     return cfg
@@ -312,6 +333,8 @@ def prepare_data(cfg: Config):
         enable_slicing=cfg_gan.enable_slicing,
         slice_size=cfg_gan.slice_size,
         z_skip=cfg_gan.z_skip,
+        pt_cache_path=cfg.env.pt_cache_path,
+        preload_to_ram=cfg_gan.preload_to_ram,
         train_aug_rot=cfg.dataset_train.data_aug_rot,
         train_aug_flip=cfg.dataset_train.data_aug_flip,
         val_aug_rot=cfg.dataset_val.data_aug_rot,
