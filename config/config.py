@@ -120,6 +120,7 @@ class GeneratorConfig(IniConfig):
     terrain_number_of_features: int = 16
     dropout_probability: float = 0.0
     max_norm: float = 1.0
+    terrain_z_scale: float = 1000.0
 
     def setGeneratorConfig(self, gen_config):
         self.norm_type = gen_config.get("norm_type")
@@ -143,6 +144,7 @@ class GeneratorConfig(IniConfig):
         )
         self.dropout_probability = gen_config.getfloat("dropout_probability")
         self.max_norm = gen_config.getfloat("max_norm")
+        self.terrain_z_scale = gen_config.getfloat("terrain_z_scale", fallback=1000.0)
 
 
 class DiscriminatorConfig(IniConfig):

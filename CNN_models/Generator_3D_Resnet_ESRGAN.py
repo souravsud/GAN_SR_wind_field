@@ -43,6 +43,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
         terrain_number_of_features: int = 16,
         dropout_probability: float = 0.0,
         max_norm: float = 1.0,
+        terrain_z_scale: float = 1000.0,
     ):
         super(Generator_3D, self).__init__()
 
@@ -58,6 +59,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
             slope = 0.2
 
         self.max_norm = max_norm
+        self.terrain_z_scale = terrain_z_scale
 
         layer_type = nn.Conv2d if conv_mode == "2D" else nn.Conv3d
 
@@ -224,6 +226,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
 
     def forward(self, x, Z):
         x = self.model(x)
+        Z = (Z - Z.amin(dim=(2, 3, 4), keepdim=True)) / self.terrain_z_scale
         Z = self.terrain_convs(Z)
         x = torch.cat((x, Z), dim=1)
         return self.hr_convs(x)

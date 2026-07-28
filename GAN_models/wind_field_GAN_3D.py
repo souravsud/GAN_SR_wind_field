@@ -117,6 +117,7 @@ class wind_field_GAN_3D(BaseGAN):
             terrain_number_of_features=cfg_G.terrain_number_of_features,
             dropout_probability=cfg_G.dropout_probability,
             max_norm=cfg_G.max_norm,
+            terrain_z_scale=cfg_G.terrain_z_scale,
         ).to(self.device, non_blocking=True)
 
         initialization.init_weights(self.G, scale=cfg_G.weight_init_scale)
