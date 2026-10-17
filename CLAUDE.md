@@ -21,6 +21,12 @@ python run.py --test --cfg config/wind_field_GAN_3D_config_local.ini
 # CPU smoke-test (no GPU needed, tiny model, 20 iterations)
 python run.py --train --test --cfg config/wind_field_GAN_3D_config_local_cpu_test.ini
 
+# Write a fixed train/val/test split (cases in both HR and LR datasets) to split_file
+python run.py --make_split --cfg config/wind_field_GAN_3D_config_local.ini
+
+# Read-only HR/LR terrain-orientation and near-ground checks
+python tools/check_hr_lr_consistency.py --hr v2=/path/hr --lr /path/lr
+
 # Hyperparameter search (uses Ray Tune + Optuna)
 python run.py --param_search --cfg config/wind_field_GAN_3D_config_local.ini
 ```
@@ -48,6 +54,8 @@ The pipeline uses NPZ-formatted Wind-Terrain CFD data:
 - `case_index.csv` must have columns: `case_id`, `converged`, `mesh_mesh_ok`; only cases where both are `True` are used
 - `data_source` in `[ENV]` must point to this root directory
 - `sample_start`/`sample_end` are 1-based row indices into `case_index.csv`
+
+Optional separate LR dataset (`use_lr_dataset = True`, `lr_data_source` in `[ENV]`): same layout, 75×75×48 per case, matched to HR by `case_id`. Each LR column is linearly interpolated onto the selected HR layer heights (after `number_of_z_layers`/`z_skip`); crop/slice starts snap to multiples of `scale`. With `use_lr_dataset = False`, LR is HR downsampled (`[::scale]`). `split_file` (from `--make_split`) fixes the train/val/test cases for both modes; sample_start/sample_end are then ignored.
 
 Domain: 300×300 horizontal cells, 64 vertical layers. `crop_nx`/`crop_ny` centre-crop the horizontal domain; `number_of_z_layers` keeps the lowest k layers from the ground (k=0).
 
@@ -82,6 +90,7 @@ Normalisation: `UVW_MAX` is fixed at 10.0 m/s (REFERENCE_VELOCITY); `Z_MIN`/`Z_M
 - Validation images (pickled): `runs/<name>/images/val_imgs__it_<iter>.pkl`
 - Test plots: `runs/<name>/plots/`
 - Test metrics CSV: `test_output/<name>____metrics.csv`, `test_output/averages.csv`
+- Layer metrics (all layers / excluding layer 0, split by HR `converged_residualControl`): `test_output/<name>____metrics_by_layers.csv`, `test_output/<name>____summary_by_layers.csv`
 - TensorBoard logs: `tensorboard_log/<name>/`
 - Status logs: `log/<name>.log`
 

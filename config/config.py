@@ -100,6 +100,7 @@ class EnvConfig(IniConfig):
         # Fallbacks keep older .ini files (without these keys) working.
         self.use_lr_dataset = env_config.getboolean("use_lr_dataset", fallback=False)
         self.lr_data_source = env_config.get("lr_data_source", fallback=None)
+        self.split_file = env_config.get("split_file", fallback=None)
 
 
 class GeneratorConfig(IniConfig):

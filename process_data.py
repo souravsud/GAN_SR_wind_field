@@ -550,71 +550,10 @@ def convert_npz_to_pt(data_source, pt_cache_path, sample_start, sample_end, num_
         list(tqdm(executor.map(_convert_one_case, args), total=len(args), desc="NPZ→PT"))
 
 
-# ---------------------------------------------------------------------------
-# Main entry point called by run.py
-# ---------------------------------------------------------------------------
-
-
-def preprosess(
-    destination_folder,
-    processed_data_folder,
-    train_eval_test_ratio=0.8,
-    sample_start=1,
-    sample_end=100,
-    crop_nx=300,
-    crop_ny=300,
-    crop_nk=64,
-    include_pressure=False,
-    include_z_channel=True,
-    include_above_ground_channel=False,
-    COARSENESS_FACTOR=4,
-    train_aug_rot=True,
-    train_aug_flip=True,
-    val_aug_rot=False,
-    val_aug_flip=False,
-    for_plotting=False,
-    dataset="wind_terrain",
-    data_source=None,
-    z_skip=0,
-    enable_slicing=False,
-    slice_size=64,
-    pt_cache_path=None,
-    preload_to_ram=False,
-    lr_data_source=None,
-):
-    """Prepare train / validation / test datasets from the NPZ CFD dataset.
-
-    Parameters
-    ----------
-    data_source : str
-        Path to the dataset root directory (must contain ``data/`` and
-        ``case_index.csv``).
-    sample_start : int
-        First sample to use (1-based row index in case_index.csv, inclusive).
-    sample_end : int
-        Last sample to use (1-based row index, inclusive).
-    crop_nx, crop_ny : int
-        Number of horizontal cells to keep after centre-cropping (must be
-        divisible by ``COARSENESS_FACTOR``). Ignored when ``enable_slicing``
-        is True (the test dataset still centre-crops to this size).
-    crop_nk : int
-        Number of vertical layers to keep from the ground up (k=0 is ground).
-    enable_slicing : bool
-        If True, train and validation datasets return a randomly positioned
-        ``slice_size × slice_size`` horizontal window instead of a fixed
-        centre crop. The window is drawn from Beta(0.25, 0.25) so corners
-        and centre are sampled more often. The test dataset always uses a
-        fixed centre crop regardless of this flag.
-    slice_size : int
-        Side length of the spatial window when ``enable_slicing`` is True.
-        Must be divisible by ``COARSENESS_FACTOR``.
-    lr_data_source : str or None
-        Root of a separate LR dataset (same layout as ``data_source``). If
-        given, the LR input comes from these simulations instead of
-        downsampling HR, and only cases present in both datasets are used.
-    """
-    # Resolve dataset root
-    dataset_root = data_source if data_source else destination_folder
+def select_cases(dataset_root, sample_start, sample_end, lr_data_source=None):
+    """Return the HR cases to use: rows sample_start..sample_end of
+    case_index.csv that pass the quality filters and exist on disk. With
+    lr_data_source, keep only cases that also have a valid LR case."""
     data_dir = os.path.join(dataset_root, "data")
 
     # case_index.csv lives at the dataset root
@@ -697,9 +636,14 @@ def preprosess(
         if len(idx) == 0:
             raise ValueError(f"No HR cases have a matching LR case in {lr_data_source}")
 
+    return idx
+
+
+def split_by_terrain(idx, train_eval_test_ratio, seed=2001):
+    """Add a 'split' column (train/val/test), grouped by terrain to avoid leakage."""
     # ---- terrain-grouped split to avoid leakage ----------------------------
     unique_terrains = sorted(idx["terrain_key"].unique())
-    rng = np.random.default_rng(seed=2001)
+    rng = np.random.default_rng(seed=seed)
     shuffled_terrains = rng.permutation(unique_terrains).tolist()
 
     n_terrains = len(shuffled_terrains)
@@ -711,9 +655,152 @@ def preprosess(
     val_terrains = set(shuffled_terrains[n_train : n_train + n_val])
     test_terrains = set(shuffled_terrains[n_train + n_val :])
 
-    train_idx = idx[idx["terrain_key"].isin(train_terrains)]
-    val_idx = idx[idx["terrain_key"].isin(val_terrains)]
-    test_idx = idx[idx["terrain_key"].isin(test_terrains)]
+    idx = idx.copy()
+    idx["split"] = np.where(
+        idx["terrain_key"].isin(train_terrains), "train",
+        np.where(idx["terrain_key"].isin(val_terrains), "val", "test"),
+    )
+    return idx
+
+
+def make_split(split_file, dataset_root, lr_data_source, sample_start, sample_end,
+               train_eval_test_ratio, seed=2001):
+    """Write a fixed train/val/test split of the cases present in both the HR
+    and LR datasets, so baseline and LR-input runs use identical cases."""
+    if os.path.exists(split_file):
+        raise FileExistsError(f"{split_file} already exists; delete it first to regenerate")
+    idx = split_by_terrain(
+        select_cases(dataset_root, sample_start, sample_end, lr_data_source),
+        train_eval_test_ratio, seed,
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(split_file)), exist_ok=True)
+    with open(split_file, "w") as f:
+        f.write(
+            f"# seed={seed} ratio={train_eval_test_ratio} rows={sample_start}-{sample_end} "
+            f"hr={dataset_root} lr={lr_data_source}\n"
+        )
+        idx[["case_id", "terrain_key", "split"]].to_csv(f, index=False)
+    print(f"Wrote {split_file}: {idx['split'].value_counts().to_dict()}")
+
+
+def load_split(split_file, dataset_root, lr_data_source=None):
+    """Read a split file written by make_split. Every listed case must exist."""
+    idx = pd.read_csv(split_file, comment="#")
+    idx["case_dir"] = idx["case_id"].apply(lambda c: os.path.join(dataset_root, "data", c))
+    roots = {"case_dir": dataset_root}
+    if lr_data_source:
+        idx["lr_case_dir"] = idx["case_id"].apply(lambda c: os.path.join(lr_data_source, "data", c))
+        roots["lr_case_dir"] = lr_data_source
+    for col, root in roots.items():
+        missing = [d for d in idx[col] if not os.path.exists(os.path.join(d, "fields.npz"))]
+        if missing:
+            raise FileNotFoundError(
+                f"{len(missing)} case(s) in {split_file} missing under {root}. First: {missing[0]}"
+            )
+    print(f"Using split file {split_file} (sample_start/sample_end ignored)")
+    return idx
+
+
+def read_residual_control(dataset_root, case_dirs, case_ids):
+    """converged_residualControl per case, from case_index.csv if it has the
+    column, else from each case's maps.npz metadata; None if unavailable."""
+    flags = {}
+    for p in (os.path.join(dataset_root, "case_index.csv"),
+              os.path.join(dataset_root, "metadata", "case_index.csv")):
+        if os.path.exists(p):
+            index = pd.read_csv(p)
+            if "converged_residualControl" in index.columns:
+                flags = dict(zip(index["case_id"], index["converged_residualControl"]))
+            break
+    for d, cid in zip(case_dirs, case_ids):
+        if cid not in flags:
+            try:
+                meta = json.loads(str(np.load(os.path.join(d, "maps.npz"))["metadata"]))
+                flags[cid] = meta.get("converged_residualControl")
+            except Exception:
+                flags[cid] = None
+    return {cid: flags[cid] for cid in case_ids}
+
+
+
+# ---------------------------------------------------------------------------
+# Main entry point called by run.py
+# ---------------------------------------------------------------------------
+
+
+def preprosess(
+    destination_folder,
+    processed_data_folder,
+    train_eval_test_ratio=0.8,
+    sample_start=1,
+    sample_end=100,
+    crop_nx=300,
+    crop_ny=300,
+    crop_nk=64,
+    include_pressure=False,
+    include_z_channel=True,
+    include_above_ground_channel=False,
+    COARSENESS_FACTOR=4,
+    train_aug_rot=True,
+    train_aug_flip=True,
+    val_aug_rot=False,
+    val_aug_flip=False,
+    for_plotting=False,
+    dataset="wind_terrain",
+    data_source=None,
+    z_skip=0,
+    enable_slicing=False,
+    slice_size=64,
+    pt_cache_path=None,
+    preload_to_ram=False,
+    lr_data_source=None,
+    split_file=None,
+):
+    """Prepare train / validation / test datasets from the NPZ CFD dataset.
+
+    Parameters
+    ----------
+    data_source : str
+        Path to the dataset root directory (must contain ``data/`` and
+        ``case_index.csv``).
+    sample_start : int
+        First sample to use (1-based row index in case_index.csv, inclusive).
+    sample_end : int
+        Last sample to use (1-based row index, inclusive).
+    crop_nx, crop_ny : int
+        Number of horizontal cells to keep after centre-cropping (must be
+        divisible by ``COARSENESS_FACTOR``). Ignored when ``enable_slicing``
+        is True (the test dataset still centre-crops to this size).
+    crop_nk : int
+        Number of vertical layers to keep from the ground up (k=0 is ground).
+    enable_slicing : bool
+        If True, train and validation datasets return a randomly positioned
+        ``slice_size × slice_size`` horizontal window instead of a fixed
+        centre crop. The window is drawn from Beta(0.25, 0.25) so corners
+        and centre are sampled more often. The test dataset always uses a
+        fixed centre crop regardless of this flag.
+    slice_size : int
+        Side length of the spatial window when ``enable_slicing`` is True.
+        Must be divisible by ``COARSENESS_FACTOR``.
+    lr_data_source : str or None
+        Root of a separate LR dataset (same layout as ``data_source``). If
+        given, the LR input comes from these simulations instead of
+        downsampling HR, and only cases present in both datasets are used.
+    split_file : str or None
+        CSV written by ``make_split``. If given, it fixes the train/val/test
+        cases (sample_start/sample_end are then ignored).
+    """
+    dataset_root = data_source if data_source else destination_folder
+    if split_file:
+        idx = load_split(split_file, dataset_root, lr_data_source)
+    else:
+        idx = split_by_terrain(
+            select_cases(dataset_root, sample_start, sample_end, lr_data_source),
+            train_eval_test_ratio,
+        )
+    train_idx = idx[idx["split"] == "train"]
+    val_idx = idx[idx["split"] == "val"]
+    test_idx = idx[idx["split"] == "test"]
 
     def lr_dirs(split_idx):
         return split_idx["lr_case_dir"].tolist() if lr_data_source else None
@@ -826,6 +913,7 @@ def preprosess(
         lr_case_dirs=lr_dirs(test_idx),
         **common_kwargs,
     )
+    dataset_test.converged_rc = read_residual_control(dataset_root, test_dirs, test_ids)
 
     dataset_validation = WindTerrainDataset(
         val_dirs,

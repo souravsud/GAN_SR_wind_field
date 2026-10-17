@@ -21,7 +21,7 @@ import numpy as np
 from config.config import Config
 from train import train
 from test import test
-from process_data import preprosess, convert_npz_to_pt
+from process_data import preprosess, convert_npz_to_pt, make_split
 from param_search import param_search
 
 
@@ -34,6 +34,7 @@ def main():
         and not cfg.is_download
         and not cfg.is_param_search
         and not cfg.is_convert_to_pt
+        and not cfg.is_make_split
     ):
         print(
             "pass either --test, --download, --use or --train as args, and optionally --cfg path/to/config.ini if coconfig/wind_field_GAN_3D_config_local.ini isn't what you're planning on using."
@@ -48,6 +49,20 @@ def main():
             sample_start=cfg.gan_config.sample_start,
             sample_end=cfg.gan_config.sample_end,
             num_workers=num_workers,
+        )
+        if not (cfg.is_train or cfg.is_test):
+            return
+
+    if cfg.is_make_split:
+        if not (cfg.env.split_file and cfg.env.lr_data_source):
+            raise ValueError("--make_split needs split_file and lr_data_source in [ENV]")
+        make_split(
+            cfg.env.split_file,
+            cfg.env.data_source,
+            cfg.env.lr_data_source,
+            cfg.gan_config.sample_start,
+            cfg.gan_config.sample_end,
+            cfg.training.train_eval_test_ratio,
         )
         if not (cfg.is_train or cfg.is_test):
             return
@@ -159,6 +174,13 @@ def argv_to_cfg() -> Config:
     )
 
     parser.add_argument(
+        "--make_split",
+        default=False,
+        action="store_true",
+        help="Write a fixed train/val/test split of cases in both HR and LR datasets to split_file",
+    )
+
+    parser.add_argument(
         "--loglevel",
         default=False,
         action="store_true",
@@ -179,6 +201,7 @@ def argv_to_cfg() -> Config:
     is_download = args.download
     is_param_search = args.param_search
     is_convert_to_pt = args.convert_to_pt
+    is_make_split = args.make_split
     cfg_path = args.cfg
     slurm_array_id = args.slurm_array_id
 
@@ -195,6 +218,7 @@ def argv_to_cfg() -> Config:
     cfg.is_download = is_download
     cfg.is_param_search = is_param_search
     cfg.is_convert_to_pt = is_convert_to_pt
+    cfg.is_make_split = is_make_split
     cfg.slurm_array_id = slurm_array_id
 
     return cfg
@@ -346,6 +370,7 @@ def prepare_data(cfg: Config):
         dataset=cfg.env.dataset,
         data_source=cfg.env.data_source,
         lr_data_source=cfg.env.lr_data_source if cfg.env.use_lr_dataset else None,
+        split_file=cfg.env.split_file or None,
     )
 
 

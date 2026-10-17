@@ -12,6 +12,7 @@ import os
 import torch
 import pickle as pkl
 import torch.nn as nn
+import pandas as pd
 
 import config.config as config
 from GAN_models.wind_field_GAN_3D import wind_field_GAN_3D, calculate_PSNR
@@ -78,6 +79,8 @@ def test(cfg: config.Config, dataset_test):
     avg_wind_speed = 0
     avg_old_pix = 0
     avg_old_pix_trilinear = 0
+    layer_rows = []
+    converged_rc = getattr(dataset_test, "converged_rc", {})
 
     if cfg.is_use:
         for j, (LR, HR, Z, filenames, _, _) in enumerate(dataloader_test):
@@ -153,6 +156,16 @@ def test(cfg: config.Config, dataset_test):
                         UVW_MAX,
                     )
 
+                    for layers, row in layer_metrics(
+                        HR_i[:, :3], SR_i, interpolated_LR_i, UVW_MAX
+                    ).items():
+                        layer_rows.append({
+                            "case_id": filenames[i],
+                            "converged_residualControl": converged_rc.get(filenames[i]),
+                            "layers": layers,
+                            **row,
+                        })
+
                     avg_PSNR += PSNR / niter
                     avg_PSNR_trilinear += PSNR_trilinear / niter
                     avg_pix += pix / niter
@@ -185,6 +198,8 @@ def test(cfg: config.Config, dataset_test):
             f.write(
                 f"{cfg.name},{avg_PSNR}, {avg_PSNR_trilinear}, {avg_pix}, {avg_pix_trilinear}, {avg_relative_error}, {avg_relative_error_trilinear}, {avg_wind_speed}, {avg_old_pix}, {avg_old_pix_trilinear}\n"
             )
+
+        write_layer_summary(layer_rows, cfg.name)
 
         print(f"Average PSNR: {avg_PSNR}")
         print(f"Average PSNR trilinear: {avg_PSNR_trilinear}")
@@ -259,3 +274,35 @@ def write_metrics(HR, SR, trilinear, field_name: int, dest_file, UVW_MAX):
         old_pix,
         old_pix_trilinear,
     )
+
+
+def layer_metrics(HR, SR, trilinear, UVW_MAX):
+    """PSNR, mean vector error (m/s) and relative error for SR and trilinear,
+    over all layers and over all layers except the lowest (layer 0)."""
+    out = {}
+    for layers, sl in (("all", slice(None)), ("excl_layer0", slice(1, None))):
+        h = HR[..., sl]
+        speed = torch.mean(torch.sqrt(torch.sum(h**2, dim=1)))
+        row = {}
+        for tag, pred in (("SR", SR[..., sl]), ("trilinear", trilinear[..., sl])):
+            err = torch.mean(torch.sqrt(torch.sum((h - pred) ** 2, dim=1)))
+            row[f"PSNR_{tag}"] = float(calculate_PSNR(h, pred))
+            row[f"pix_{tag}"] = float(err * UVW_MAX)
+            row[f"relative_error_{tag}"] = float(err / speed)
+        out[layers] = row
+    return out
+
+
+def write_layer_summary(layer_rows, name):
+    """Save per-case layer metrics and their means grouped by layer set and
+    HR converged_residualControl (plus all cases)."""
+    df = pd.DataFrame(layer_rows)
+    df.to_csv(f"./test_output/{name}____metrics_by_layers.csv", index=False)
+    df["converged_residualControl"] = df["converged_residualControl"].astype(str)
+    metrics = [c for c in df.columns if c.startswith(("PSNR_", "pix_", "relative_error_"))]
+    groups = pd.concat([df, df.assign(converged_residualControl="all cases")])
+    summary = groups.groupby(["layers", "converged_residualControl"])[metrics].mean()
+    summary.insert(0, "n_cases", groups.groupby(["layers", "converged_residualControl"]).size())
+    summary.to_csv(f"./test_output/{name}____summary_by_layers.csv")
+    with pd.option_context("display.width", 200, "display.max_columns", 20, "display.precision", 4):
+        print(summary)
