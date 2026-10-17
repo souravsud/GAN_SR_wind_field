@@ -542,13 +542,33 @@ def _convert_one_case(args):
     )
 
 
-def convert_npz_to_pt(data_source, pt_cache_path, sample_start, sample_end, num_workers):
+def convert_npz_to_pt(data_source, pt_cache_path, sample_start, sample_end, num_workers,
+                      split_file=None):
     """Convert NPZ case files to uncompressed PT tensors for faster data loading.
 
     Saves maps.pt and fields.pt alongside (or under pt_cache_path) for every
-    case in the given sample range. Already-converted cases are skipped.
+    case in split_file if given, else in the given sample range.
+    Already-converted cases are skipped.
     """
     data_dir = os.path.join(data_source, "data")
+    if split_file:
+        case_ids = load_split(split_file, data_source)["case_id"].unique()
+    else:
+        case_ids = _case_ids_in_range(data_source, sample_start, sample_end)
+
+    pt_data_dir = os.path.join(pt_cache_path, "data") if pt_cache_path else data_dir
+
+    args = [
+        (os.path.join(data_dir, cid), os.path.join(pt_data_dir, cid))
+        for cid in case_ids
+    ]
+
+    print(f"Converting {len(args)} cases  {data_dir} → {pt_data_dir}")
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        list(tqdm(executor.map(_convert_one_case, args), total=len(args), desc="NPZ→PT"))
+
+
+def _case_ids_in_range(data_source, sample_start, sample_end):
     case_index_path = os.path.join(data_source, "case_index.csv")
     if not os.path.exists(case_index_path):
         fallback = os.path.join(data_source, "metadata", "case_index.csv")
@@ -560,17 +580,7 @@ def convert_npz_to_pt(data_source, pt_cache_path, sample_start, sample_end, num_
     idx = pd.read_csv(case_index_path)
     idx = idx.iloc[sample_start - 1 : sample_end].reset_index(drop=True)
     idx = idx[idx["converged"] & idx["mesh_mesh_ok"]].reset_index(drop=True)
-
-    pt_data_dir = os.path.join(pt_cache_path, "data") if pt_cache_path else data_dir
-
-    args = [
-        (os.path.join(data_dir, cid), os.path.join(pt_data_dir, cid))
-        for cid in idx["case_id"]
-    ]
-
-    print(f"Converting {len(args)} cases  {data_dir} → {pt_data_dir}")
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        list(tqdm(executor.map(_convert_one_case, args), total=len(args), desc="NPZ→PT"))
+    return idx["case_id"]
 
 
 def select_cases(dataset_root, sample_start, sample_end, lr_data_source=None):

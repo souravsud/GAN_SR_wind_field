@@ -41,18 +41,6 @@ def main():
         )
         return
 
-    if cfg.is_convert_to_pt:
-        num_workers = cfg.dataset_train.num_workers if cfg.dataset_train else 4
-        convert_npz_to_pt(
-            data_source=cfg.env.data_source,
-            pt_cache_path=cfg.env.pt_cache_path,
-            sample_start=cfg.gan_config.sample_start,
-            sample_end=cfg.gan_config.sample_end,
-            num_workers=num_workers,
-        )
-        if not (cfg.is_train or cfg.is_test):
-            return
-
     if cfg.is_make_split:
         if not (cfg.env.split_file and cfg.env.lr_data_source):
             raise ValueError("--make_split needs split_file and lr_data_source in [ENV]")
@@ -63,6 +51,19 @@ def main():
             cfg.gan_config.sample_start,
             cfg.gan_config.sample_end,
             cfg.training.train_eval_test_ratio,
+        )
+        if not (cfg.is_train or cfg.is_test or cfg.is_convert_to_pt):
+            return
+
+    if cfg.is_convert_to_pt:
+        num_workers = cfg.dataset_train.num_workers if cfg.dataset_train else 4
+        convert_npz_to_pt(
+            data_source=cfg.env.data_source,
+            pt_cache_path=cfg.env.pt_cache_path,
+            sample_start=cfg.gan_config.sample_start,
+            sample_end=cfg.gan_config.sample_end,
+            num_workers=num_workers,
+            split_file=cfg.env.split_file or None,
         )
         if not (cfg.is_train or cfg.is_test):
             return
