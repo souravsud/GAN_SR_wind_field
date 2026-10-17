@@ -5,6 +5,7 @@ Each simulation case is a directory containing maps.npz and fields.npz.
 """
 
 import json
+import logging
 import os
 import re
 import pickle
@@ -18,6 +19,10 @@ from tqdm import tqdm
 
 # Reference velocity used by all simulations (m/s)
 REFERENCE_VELOCITY = 10.0
+# LR column clean-up before height interpolation
+LR_MIN_H_AGL = 0.1  # m, lower bound for the lowest LR level
+LR_H_AGL_EPS = 1e-3  # m, minimum spacing between LR levels
+_lr_logged_cases = set()
 
 
 class WindTerrainDataset(torch.utils.data.Dataset):
@@ -332,8 +337,26 @@ def load_lr_case(lr_case_dir):
     fields = np.load(os.path.join(lr_case_dir, "fields.npz"))
     maps = np.load(os.path.join(lr_case_dir, "maps.npz"))
     lr = {k: fields[k].astype(np.float32) for k in ("Ux", "Uy", "Uz")}
-    lr["h_agl"] = maps["h_agl"].astype(np.float32)
+    lr["h_agl"], n_adjusted = clean_lr_heights(maps["h_agl"].astype(np.float32))
+    if lr_case_dir not in _lr_logged_cases:  # once per case per process
+        _lr_logged_cases.add(lr_case_dir)
+        if n_adjusted:
+            n_cols = lr["h_agl"].shape[0] * lr["h_agl"].shape[1]
+            logging.getLogger("status").info(
+                f"LR h_agl: adjusted {n_adjusted}/{n_cols} columns in {os.path.basename(lr_case_dir)}"
+            )
     return lr
+
+
+def clean_lr_heights(h):
+    """Clip level 0 to >= LR_MIN_H_AGL and make each column strictly increasing
+    (each level at least LR_H_AGL_EPS above the one below). Returns the cleaned
+    heights and the number of columns that changed."""
+    h_new = h.copy()
+    h_new[..., 0] = np.maximum(h_new[..., 0], LR_MIN_H_AGL)
+    ramp = LR_H_AGL_EPS * np.arange(h.shape[-1], dtype=np.float64)
+    h_new = (np.maximum.accumulate(h_new - ramp, axis=-1) + ramp).astype(np.float32)
+    return h_new, int(np.any(h_new != h, axis=-1).sum())
 
 
 def interpolate_lr_to_hr_levels(lr, h_agl_hr, i0, j0, s):
