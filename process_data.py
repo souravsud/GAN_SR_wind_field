@@ -73,8 +73,10 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         pt_cache_path=None,
         preload_to_ram=False,
         lr_case_dirs=None,
+        pt_mmap=False,
     ):
         self.case_dirs = case_dirs
+        self.pt_mmap = pt_mmap
         self.lr_case_dirs = lr_case_dirs
         self.case_ids = case_ids
         self.Z_MIN = Z_MIN
@@ -126,8 +128,10 @@ class WindTerrainDataset(torch.utils.data.Dataset):
             pt_case_dir = case_dir
         maps_pt = os.path.join(pt_case_dir, "maps.pt")
         if os.path.exists(maps_pt):
-            maps = {k: v.numpy() for k, v in torch.load(maps_pt, map_location="cpu", weights_only=True).items()}
-            fields = {k: v.numpy() for k, v in torch.load(os.path.join(pt_case_dir, "fields.pt"), map_location="cpu", weights_only=True).items()}
+            # mmap=True maps the file instead of reading it; only the cropped
+            # window is read from disk when __getitem__ copies it.
+            maps = {k: v.numpy() for k, v in torch.load(maps_pt, map_location="cpu", weights_only=True, mmap=self.pt_mmap).items()}
+            fields = {k: v.numpy() for k, v in torch.load(os.path.join(pt_case_dir, "fields.pt"), map_location="cpu", weights_only=True, mmap=self.pt_mmap).items()}
         else:
             maps = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "maps.npz"), allow_pickle=True).items() if np.asarray(v).dtype.kind in ("f", "i", "u")}
             fields = {k: np.asarray(v).astype(np.float32) for k, v in np.load(os.path.join(case_dir, "fields.npz")).items()}
@@ -788,6 +792,7 @@ def preprosess(
     preload_to_ram=False,
     lr_data_source=None,
     split_file=None,
+    pt_mmap=False,
 ):
     """Prepare train / validation / test datasets from the NPZ CFD dataset.
 
@@ -920,6 +925,7 @@ def preprosess(
         crop_ny=crop_ny,
         crop_nk=crop_nk,
         z_skip=z_skip,
+        pt_mmap=pt_mmap,
     )
 
     dataset_train = WindTerrainDataset(

@@ -47,6 +47,7 @@ class GANConfig(IniConfig):
     # (i.e. keeps every (N+1)-th layer starting from k=0).
     z_skip: int = 0
     preload_to_ram: bool = False
+    pt_mmap: bool = False
 
     def setGANConfig(self, gan_config):
         self.include_pressure = gan_config.getboolean("include_pressure")
@@ -67,6 +68,8 @@ class GANConfig(IniConfig):
         self.slice_size = gan_config.getint("slice_size")
         self.z_skip = gan_config.getint("z_skip")
         self.preload_to_ram = gan_config.getboolean("preload_to_ram")
+        # Fallback keeps older .ini files (without this key) working.
+        self.pt_mmap = gan_config.getboolean("pt_mmap", fallback=False)
 
 
 class EnvConfig(IniConfig):

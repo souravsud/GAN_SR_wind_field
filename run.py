@@ -372,6 +372,7 @@ def prepare_data(cfg: Config):
         data_source=cfg.env.data_source,
         lr_data_source=cfg.env.lr_data_source if cfg.env.use_lr_dataset else None,
         split_file=cfg.env.split_file or None,
+        pt_mmap=cfg_gan.pt_mmap,
     )
 
 
