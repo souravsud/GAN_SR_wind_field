@@ -97,6 +97,9 @@ class EnvConfig(IniConfig):
         self.data_source = env_config.get("data_source")
         raw_pt = env_config.get("pt_cache_path")
         self.pt_cache_path = raw_pt if raw_pt else None
+        # Fallbacks keep older .ini files (without these keys) working.
+        self.use_lr_dataset = env_config.getboolean("use_lr_dataset", fallback=False)
+        self.lr_data_source = env_config.get("lr_data_source", fallback=None)
 
 
 class GeneratorConfig(IniConfig):

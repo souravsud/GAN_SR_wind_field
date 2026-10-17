@@ -31,7 +31,9 @@ class WindTerrainDataset(torch.utils.data.Dataset):
     former CustomizedDataset so that train.py / test.py are unchanged:
       - HR  : normalised target wind field, shape (out_ch, nx, ny, nk)
       - LR  : spatially coarsened input + optional auxiliary channels,
-              shape (in_ch, nx//coarseness_factor, ny//coarseness_factor, nk)
+              shape (in_ch, nx//coarseness_factor, ny//coarseness_factor, nk).
+              Downsampled from HR, or, when lr_case_dirs is given, taken from
+              a separate LR simulation interpolated onto the HR layer heights.
       - Z   : absolute elevation used for vertical gradient computation,
               shape (1, nx, ny, nk)
     """
@@ -65,8 +67,10 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         z_skip=0,
         pt_cache_path=None,
         preload_to_ram=False,
+        lr_case_dirs=None,
     ):
         self.case_dirs = case_dirs
+        self.lr_case_dirs = lr_case_dirs
         self.case_ids = case_ids
         self.Z_MIN = Z_MIN
         self.Z_MAX = Z_MAX
@@ -92,12 +96,15 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         self.slice_size = slice_size
         self.pt_cache_path = pt_cache_path
         self._cache = None
+        self._lr_cache = None
         if preload_to_ram:
             print(f"Preloading {len(case_dirs)} cases to RAM...")
             self._cache = [
                 self._load_case(d, i)
                 for d, i in tqdm(zip(case_dirs, case_ids), total=len(case_dirs), desc="Preloading")
             ]
+            if lr_case_dirs is not None:
+                self._lr_cache = [load_lr_case(d) for d in lr_case_dirs]
 
     # ------------------------------------------------------------------
     # Dataset protocol
@@ -132,12 +139,18 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         if self.enable_slicing:
             i_start = round(np.random.beta(0.25, 0.25) * (ni - self.slice_size))
             j_start = round(np.random.beta(0.25, 0.25) * (nj - self.slice_size))
+        else:
+            i_start = (ni - self.crop_nx) // 2
+            j_start = (nj - self.crop_ny) // 2
+        if self.lr_case_dirs is not None:
+            # Snap to whole LR cells so the LR and HR windows line up.
+            i_start -= i_start % self.coarseness_factor
+            j_start -= j_start % self.coarseness_factor
+        if self.enable_slicing:
             i_end = i_start + self.slice_size
             j_end = j_start + self.slice_size
         else:
-            i_start = (ni - self.crop_nx) // 2
             i_end = i_start + self.crop_nx
-            j_start = (nj - self.crop_ny) // 2
             j_end = j_start + self.crop_ny
 
         # ---- load case data (PT if available, else NPZ) --------------------
@@ -160,6 +173,17 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         # Pressure is not stored in the NPZ format
         p = None
 
+        lr_uvw = None
+        if self.lr_case_dirs is not None:
+            if self._lr_cache is not None:
+                lr = self._lr_cache[index]
+            else:
+                lr = load_lr_case(self.lr_case_dirs[index])
+            lr_uvw = interpolate_lr_to_hr_levels(
+                lr, h_agl, i_start // self.coarseness_factor,
+                j_start // self.coarseness_factor, self.coarseness_factor,
+            )
+
         # ---- build LR/HR/Z tensors -----------------------------------------
         LR, HR, Z_tensor = reformat_to_torch(
             Ux,
@@ -179,6 +203,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
             include_z_channel=self.include_z_channel,
             include_above_ground_channel=self.include_above_ground_channel,
             for_plotting=self.for_plotting,
+            lr_uvw=lr_uvw,
         )
 
         # ---- data augmentation ---------------------------------------------
@@ -302,6 +327,42 @@ def calculate_gradient_of_wind_field(HR_data, x, y, Z):
     )
 
 
+def load_lr_case(lr_case_dir):
+    """Load the arrays needed from one case of the separate LR dataset."""
+    fields = np.load(os.path.join(lr_case_dir, "fields.npz"))
+    maps = np.load(os.path.join(lr_case_dir, "maps.npz"))
+    lr = {k: fields[k].astype(np.float32) for k in ("Ux", "Uy", "Uz")}
+    lr["h_agl"] = maps["h_agl"].astype(np.float32)
+    return lr
+
+
+def interpolate_lr_to_hr_levels(lr, h_agl_hr, i0, j0, s):
+    """Interpolate LR wind columns onto the HR layer heights.
+
+    For each LR column, the target heights are the HR heights above ground
+    averaged over the matching s×s block of HR cells. Interpolation is linear
+    in height; targets outside the LR column take the nearest LR layer.
+    i0, j0 are the window start in LR cells. Returns (3, nx//s, ny//s, nk).
+    """
+    nx, ny, nk = h_agl_hr.shape
+    window = (slice(i0, i0 + nx // s), slice(j0, j0 + ny // s))
+    h_lr = lr["h_agl"][window]
+    h_tgt = h_agl_hr.reshape(nx // s, s, ny // s, s, nk).mean(axis=(1, 3))
+    assert h_lr.shape[:2] == h_tgt.shape[:2], (
+        f"LR grid {lr['h_agl'].shape[:2]} does not cover the HR window"
+    )
+    hi = np.clip((h_lr[..., None, :] < h_tgt[..., None]).sum(-1), 1, h_lr.shape[-1] - 1)
+    lo = hi - 1
+    h_lo = np.take_along_axis(h_lr, lo, -1)
+    h_hi = np.take_along_axis(h_lr, hi, -1)
+    w = np.clip((h_tgt - h_lo) / (h_hi - h_lo), 0.0, 1.0)
+    return np.stack([
+        (1 - w) * np.take_along_axis(lr[c][window], lo, -1)
+        + w * np.take_along_axis(lr[c][window], hi, -1)
+        for c in ("Ux", "Uy", "Uz")
+    ])
+
+
 def reformat_to_torch(
     u,
     v,
@@ -320,6 +381,7 @@ def reformat_to_torch(
     include_z_channel=False,
     include_above_ground_channel=False,
     for_plotting=False,
+    lr_uvw=None,
 ):
     HR_arr = (
         np.concatenate(
@@ -338,6 +400,8 @@ def reformat_to_torch(
             HR_arr = np.concatenate(
                 (HR_arr, (p[np.newaxis, :, :, :] - P_MIN) / (P_MAX - P_MIN)), axis=0
             )
+    elif lr_uvw is not None:
+        arr_norm_LR = lr_uvw / UVW_MAX
     else:
         arr_norm_LR = HR_arr[:, ::coarseness_factor, ::coarseness_factor, :]
 
@@ -516,6 +580,7 @@ def preprosess(
     slice_size=64,
     pt_cache_path=None,
     preload_to_ram=False,
+    lr_data_source=None,
 ):
     """Prepare train / validation / test datasets from the NPZ CFD dataset.
 
@@ -543,6 +608,10 @@ def preprosess(
     slice_size : int
         Side length of the spatial window when ``enable_slicing`` is True.
         Must be divisible by ``COARSENESS_FACTOR``.
+    lr_data_source : str or None
+        Root of a separate LR dataset (same layout as ``data_source``). If
+        given, the LR input comes from these simulations instead of
+        downsampling HR, and only cases present in both datasets are used.
     """
     # Resolve dataset root
     dataset_root = data_source if data_source else destination_folder
@@ -610,6 +679,24 @@ def preprosess(
             "No NPZ case directories found on disk. Check dataset_root and case IDs."
         )
 
+    # ---- pair with the separate LR dataset ---------------------------------
+    if lr_data_source:
+        lr_index_path = os.path.join(lr_data_source, "case_index.csv")
+        if not os.path.exists(lr_index_path):
+            lr_index_path = os.path.join(lr_data_source, "metadata", "case_index.csv")
+        lr_idx = pd.read_csv(lr_index_path)
+        lr_ok = lr_idx.loc[lr_idx["converged"] & lr_idx["mesh_mesh_ok"], "case_id"]
+        idx["lr_case_dir"] = idx["case_id"].apply(
+            lambda cid: os.path.join(lr_data_source, "data", cid)
+        )
+        has_lr = idx["case_id"].isin(lr_ok) & idx["lr_case_dir"].apply(
+            lambda d: os.path.exists(os.path.join(d, "fields.npz"))
+        )
+        print(f"LR dataset: {has_lr.sum()}/{len(idx)} HR cases have a valid LR case")
+        idx = idx[has_lr].reset_index(drop=True)
+        if len(idx) == 0:
+            raise ValueError(f"No HR cases have a matching LR case in {lr_data_source}")
+
     # ---- terrain-grouped split to avoid leakage ----------------------------
     unique_terrains = sorted(idx["terrain_key"].unique())
     rng = np.random.default_rng(seed=2001)
@@ -627,6 +714,9 @@ def preprosess(
     train_idx = idx[idx["terrain_key"].isin(train_terrains)]
     val_idx = idx[idx["terrain_key"].isin(val_terrains)]
     test_idx = idx[idx["terrain_key"].isin(test_terrains)]
+
+    def lr_dirs(split_idx):
+        return split_idx["lr_case_dir"].tolist() if lr_data_source else None
 
     train_dirs = train_idx["case_dir"].tolist()
     train_ids = train_idx["case_id"].tolist()
@@ -722,6 +812,7 @@ def preprosess(
         slice_size=slice_size,
         pt_cache_path=pt_cache_path,
         preload_to_ram=preload_to_ram,
+        lr_case_dirs=lr_dirs(train_idx),
         **common_kwargs,
     )
 
@@ -732,6 +823,7 @@ def preprosess(
         data_aug_flip=False,
         is_test=True,
         pt_cache_path=pt_cache_path,
+        lr_case_dirs=lr_dirs(test_idx),
         **common_kwargs,
     )
 
@@ -744,6 +836,7 @@ def preprosess(
         slice_size=slice_size,
         pt_cache_path=pt_cache_path,
         preload_to_ram=preload_to_ram,
+        lr_case_dirs=lr_dirs(val_idx),
         **common_kwargs,
     )
 

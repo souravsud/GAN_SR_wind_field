@@ -318,6 +318,8 @@ def save_config(cfg: Config, folder: str):
 
 def prepare_data(cfg: Config):
     cfg_gan = cfg.gan_config
+    if cfg.env.use_lr_dataset and not cfg.env.lr_data_source:
+        raise ValueError("use_lr_dataset = True but lr_data_source is not set")
 
     return preprosess(
         destination_folder=cfg.env.download_folder,
@@ -343,6 +345,7 @@ def prepare_data(cfg: Config):
         COARSENESS_FACTOR=cfg.scale,
         dataset=cfg.env.dataset,
         data_source=cfg.env.data_source,
+        lr_data_source=cfg.env.lr_data_source if cfg.env.use_lr_dataset else None,
     )
 
 
