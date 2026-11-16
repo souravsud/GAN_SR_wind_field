@@ -115,6 +115,7 @@ class wind_field_GAN_3D(BaseGAN):
             conv_mode=cfg_gan.conv_mode,
             use_mixed_precision=cfg_G.use_mixed_precision,
             terrain_number_of_features=cfg_G.terrain_number_of_features,
+            num_hr_merge_convs=cfg_G.num_hr_merge_convs,
             dropout_probability=cfg_G.dropout_probability,
             max_norm=cfg_G.max_norm,
         ).to(self.device, non_blocking=True)

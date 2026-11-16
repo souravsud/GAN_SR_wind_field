@@ -122,6 +122,7 @@ class GeneratorConfig(IniConfig):
     conv_mode: str = "2D"
     use_mixed_precision: bool = True
     terrain_number_of_features: int = 16
+    num_hr_merge_convs: int = 1
     dropout_probability: float = 0.0
     max_norm: float = 1.0
 
@@ -145,6 +146,8 @@ class GeneratorConfig(IniConfig):
         self.terrain_number_of_features = gen_config.getint(
             "terrain_number_of_features"
         )
+        # Fallback keeps older .ini files (without this key) working.
+        self.num_hr_merge_convs = gen_config.getint("num_hr_merge_convs", fallback=1)
         self.dropout_probability = gen_config.getfloat("dropout_probability")
         self.max_norm = gen_config.getfloat("max_norm")
 

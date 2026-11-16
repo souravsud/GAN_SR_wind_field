@@ -41,6 +41,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
         # device=torch.device("mps" if torch.backends.mps.is_available() else "cpu"),
         device="cpu",
         terrain_number_of_features: int = 16,
+        num_hr_merge_convs: int = 1,
         dropout_probability: float = 0.0,
         max_norm: float = 1.0,
     ):
@@ -92,6 +93,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
                 lrelu_negative_slope=slope,
                 lrelu=False,
             )
+            # num_hr_merge_convs conv+LReLU blocks mix terrain and flow features at HR.
             hr_convs_w_dropout = [
                 create_conv_lrelu_layer(
                     number_of_features + terrain_number_of_features,
@@ -100,7 +102,9 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
                     padding=hr_pad,
                     lrelu_negative_slope=slope,
                     layer_type=layer_type,
-                ),
+                )
+                for _ in range(num_hr_merge_convs)
+            ] + [
                 dropout,
                 layer_type(
                     number_of_features + terrain_number_of_features,
@@ -159,7 +163,9 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
                     kernel_size=hr_kern_size,
                     lrelu_negative_slope=slope,
                     number_of_z_layers=number_of_z_layers,
-                ),
+                )
+                for _ in range(num_hr_merge_convs)
+            ] + [
                 dropout,
                 Horizontal_Conv_3D(
                     number_of_features + terrain_number_of_features,
