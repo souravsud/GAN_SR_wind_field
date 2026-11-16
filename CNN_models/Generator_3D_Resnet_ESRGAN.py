@@ -42,6 +42,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
         device="cpu",
         terrain_number_of_features: int = 16,
         num_hr_merge_convs: int = 1,
+        hr_merge_kern_size: int = None,
         terrain_in_channels: int = 1,
         dropout_probability: float = 0.0,
         max_norm: float = 1.0,
@@ -64,6 +65,11 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
         layer_type = nn.Conv2d if conv_mode == "2D" else nn.Conv3d
 
         hr_pad = (hr_kern_size - 1) // 2
+        # First merge conv uses hr_kern_size (as originally); the extra ones use
+        # hr_merge_kern_size (defaults to hr_kern_size).
+        if hr_merge_kern_size is None:
+            hr_merge_kern_size = hr_kern_size
+        merge_kern_sizes = [hr_kern_size] + [hr_merge_kern_size] * (num_hr_merge_convs - 1)
         # self.scaler = torch.cuda.amp.GradScaler(enabled=use_mixed_precision)
 
         if dropout_probability == None:
@@ -99,12 +105,12 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
                 create_conv_lrelu_layer(
                     number_of_features + terrain_number_of_features,
                     number_of_features + terrain_number_of_features,
-                    kernel_size=hr_kern_size,
-                    padding=hr_pad,
+                    kernel_size=k,
+                    padding=(k - 1) // 2,
                     lrelu_negative_slope=slope,
                     layer_type=layer_type,
                 )
-                for _ in range(num_hr_merge_convs)
+                for k in merge_kern_sizes
             ] + [
                 dropout,
                 layer_type(
@@ -161,11 +167,11 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
                 Horizontal_Conv_3D(
                     number_of_features + terrain_number_of_features,
                     number_of_features + terrain_number_of_features,
-                    kernel_size=hr_kern_size,
+                    kernel_size=k,
                     lrelu_negative_slope=slope,
                     number_of_z_layers=number_of_z_layers,
                 )
-                for _ in range(num_hr_merge_convs)
+                for k in merge_kern_sizes
             ] + [
                 dropout,
                 Horizontal_Conv_3D(

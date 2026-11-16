@@ -116,6 +116,7 @@ class wind_field_GAN_3D(BaseGAN):
             use_mixed_precision=cfg_G.use_mixed_precision,
             terrain_number_of_features=cfg_G.terrain_number_of_features,
             num_hr_merge_convs=cfg_G.num_hr_merge_convs,
+            hr_merge_kern_size=cfg_G.hr_merge_kern_size,
             # Z carries a roughness channel after elevation when include_roughness.
             terrain_in_channels=1 + cfg_gan.include_roughness,
             dropout_probability=cfg_G.dropout_probability,

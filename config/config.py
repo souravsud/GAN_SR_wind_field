@@ -126,6 +126,7 @@ class GeneratorConfig(IniConfig):
     use_mixed_precision: bool = True
     terrain_number_of_features: int = 16
     num_hr_merge_convs: int = 1
+    hr_merge_kern_size: int = 3
     dropout_probability: float = 0.0
     max_norm: float = 1.0
 
@@ -151,6 +152,7 @@ class GeneratorConfig(IniConfig):
         )
         # Fallback keeps older .ini files (without this key) working.
         self.num_hr_merge_convs = gen_config.getint("num_hr_merge_convs", fallback=1)
+        self.hr_merge_kern_size = gen_config.getint("hr_merge_kern_size", fallback=self.hr_kern_size)
         self.dropout_probability = gen_config.getfloat("dropout_probability")
         self.max_norm = gen_config.getfloat("max_norm")
 
