@@ -5,7 +5,7 @@ REPO=/projects/F202509582CPCAA2/superRes/GAN_SR_wind_field_steady
 D=$(readlink -f /home/souravsudhakaran/dataset/DATASET)
 HR=$D/HR_30m; LR=$D/LR_120m; PT=$HR/pt_cache
 BIG=$(readlink -f /home/souravsudhakaran/dataset)/sr_runs
-BASE=$REPO/config/best_config_wold_et_al.ini
+BASE=$REPO/config/default_cluster.ini
 SPLIT0=$REPO/splits/split_fixed_v3.csv
 TAG=run1197_LR_v2; S1=${TAG}_s1; S2=${TAG}_s2
 CD=$REPO/config/experiments/2026-10_v2; mkdir -p $CD
