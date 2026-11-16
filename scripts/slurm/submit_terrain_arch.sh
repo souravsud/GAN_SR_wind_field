@@ -32,9 +32,9 @@ cfg_get() { grep "^$1 *=" $CD/run1197_LR_merge4.ini | sed "s/^$1 *= *//"; }
 PT=$(cfg_get pt_cache_path); LR=$(cfg_get lr_data_source); SPLIT=$(cfg_get split_file)
 echo "pt_cache: $PT"; echo "lr:       $LR"; echo "split:    $SPLIT"
 python - "$PT" "$LR" "$SPLIT" <<'EOF'
-import sys, os, torch
+import sys, os, re, torch
 pt, lr, split = sys.argv[1:]
-ids = [l.split(",")[0] for l in open(split) if l.startswith("case_")]
+ids = [l.split(",")[0] for l in open(split) if re.match(r"case_\d", l)]
 bad = []
 for c in ids:
     m, f = (os.path.join(pt, "data", c, n) for n in ("maps.pt", "fields.pt"))
