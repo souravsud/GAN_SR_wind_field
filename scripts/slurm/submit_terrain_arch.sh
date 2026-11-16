@@ -20,7 +20,7 @@ BIG=/projects/F202511947CPCAA2/sr_runs
 CD=$REPO/config/experiments/2026-11_terrain_arch
 VARIANTS="run1197_LR_merge4:hr_merge_convs run1197_LR_merge4_z0:hr_merge_convs_roughness"
 ACC=f202509582cpcaa2g; PART=normal-a100-80
-TRAIN_TIME=1-00:00:00; TEST_TIME=02:00:00
+TRAIN_TIME=1-06:00:00; TEST_TIME=02:00:00
 MODULES="ml purge; unset PYTHONPATH; ml load Python/3.11.3-GCCcore-12.3.0 CUDA/11.8.0; source /projects/F202511947CPCAA2/0_venv/ml_env/bin/activate"
 
 cd $REPO
