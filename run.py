@@ -357,6 +357,7 @@ def prepare_data(cfg: Config):
         include_pressure=cfg_gan.include_pressure,
         include_z_channel=cfg_gan.include_z_channel,
         include_above_ground_channel=cfg_gan.include_above_ground_channel,
+        include_roughness=cfg_gan.include_roughness,
         enable_slicing=cfg_gan.enable_slicing,
         slice_size=cfg_gan.slice_size,
         z_skip=cfg_gan.z_skip,

@@ -58,6 +58,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         include_pressure=False,
         include_z_channel=True,
         include_above_ground_channel=False,
+        include_roughness=False,
         COARSENESS_FACTOR=4,
         crop_nx=300,
         crop_ny=300,
@@ -88,6 +89,7 @@ class WindTerrainDataset(torch.utils.data.Dataset):
         self.include_pressure = include_pressure
         self.include_z_channel = include_z_channel
         self.include_above_ground_channel = include_above_ground_channel
+        self.include_roughness = include_roughness
         self.coarseness_factor = COARSENESS_FACTOR
         self.crop_nx = crop_nx
         self.crop_ny = crop_ny
@@ -210,6 +212,14 @@ class WindTerrainDataset(torch.utils.data.Dataset):
             for_plotting=self.for_plotting,
             lr_uvw=lr_uvw,
         )
+
+        if self.include_roughness:
+            # Second Z channel for the generator's terrain branch: log10(z0)
+            # scaled to ~[0, 1] for z0 in [1e-4, ~3] m, constant along height.
+            # Losses only use channel 0 (absolute elevation).
+            z0 = np.maximum(maps["roughness"].astype(np.float32)[i_start:i_end, j_start:j_end], 1e-4)
+            z0_norm = torch.from_numpy((np.log10(z0) + 4.0) / 4.5).float()
+            Z_tensor = torch.cat((Z_tensor, z0_norm[None, :, :, None].expand_as(Z_tensor)), dim=0)
 
         # ---- data augmentation ---------------------------------------------
         if self.data_aug_rot:
@@ -773,6 +783,7 @@ def preprosess(
     include_pressure=False,
     include_z_channel=True,
     include_above_ground_channel=False,
+    include_roughness=False,
     COARSENESS_FACTOR=4,
     train_aug_rot=True,
     train_aug_flip=True,
@@ -915,6 +926,7 @@ def preprosess(
         include_pressure=include_pressure,
         include_z_channel=include_z_channel,
         include_above_ground_channel=include_above_ground_channel,
+        include_roughness=include_roughness,
         COARSENESS_FACTOR=COARSENESS_FACTOR,
         crop_nx=crop_nx,
         crop_ny=crop_ny,

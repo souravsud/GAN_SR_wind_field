@@ -31,6 +31,7 @@ class GANConfig(IniConfig):
     include_pressure: bool = False
     include_z_channel: bool = True
     include_above_ground_channel: bool = False
+    include_roughness: bool = False
     number_of_z_layers: int = 64
     conv_mode: str = "3D"
     # Sample range selection (1-based, inclusive)
@@ -54,6 +55,8 @@ class GANConfig(IniConfig):
         self.include_above_ground_channel = gan_config.getboolean(
             "include_above_ground_channel"
         )
+        # Fallback keeps older .ini files (without this key) working.
+        self.include_roughness = gan_config.getboolean("include_roughness", fallback=False)
         self.number_of_z_layers = gan_config.getint("number_of_z_layers")
         self.conv_mode = gan_config.get("conv_mode")
         self.sample_start = gan_config.getint("sample_start")

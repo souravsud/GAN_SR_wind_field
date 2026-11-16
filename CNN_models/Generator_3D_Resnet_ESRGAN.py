@@ -42,6 +42,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
         device="cpu",
         terrain_number_of_features: int = 16,
         num_hr_merge_convs: int = 1,
+        terrain_in_channels: int = 1,
         dropout_probability: float = 0.0,
         max_norm: float = 1.0,
     ):
@@ -123,7 +124,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
             # )
             terrain_convs = [
                 create_conv_lrelu_layer(
-                    1,
+                    terrain_in_channels,
                     terrain_number_of_features,
                     3,
                     padding=1,
@@ -176,7 +177,7 @@ class Generator_3D(nn.Module, lc.GlobalLoggingClass):
                 ),
             ]
             terrain_conv = Horizontal_Conv_3D(
-                1,
+                terrain_in_channels,
                 terrain_number_of_features,
                 3,
                 number_of_z_layers=number_of_z_layers,

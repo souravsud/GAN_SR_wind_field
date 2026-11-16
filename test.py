@@ -190,7 +190,7 @@ def test(cfg: config.Config, dataset_test):
                         HR[i],
                         SR_i[0],
                         interpolated_LR[i],
-                        Z[i],
+                        Z[i, :1],
                         cfg.env.this_runs_folder,
                         filenames[i],
                     )

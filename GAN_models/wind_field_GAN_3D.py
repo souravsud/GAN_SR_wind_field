@@ -116,6 +116,8 @@ class wind_field_GAN_3D(BaseGAN):
             use_mixed_precision=cfg_G.use_mixed_precision,
             terrain_number_of_features=cfg_G.terrain_number_of_features,
             num_hr_merge_convs=cfg_G.num_hr_merge_convs,
+            # Z carries a roughness channel after elevation when include_roughness.
+            terrain_in_channels=1 + cfg_gan.include_roughness,
             dropout_probability=cfg_G.dropout_probability,
             max_norm=cfg_G.max_norm,
         ).to(self.device, non_blocking=True)
@@ -387,10 +389,10 @@ class wind_field_GAN_3D(BaseGAN):
             loss_G_pix = self.pixel_criterion(HR, fake_HR)
 
         HR_wind_gradient = calculate_gradient_of_wind_field(
-            HR[:, :3], self.x, self.y, Z
+            HR[:, :3], self.x, self.y, Z[:, :1]
         )
         SR_wind_gradient = calculate_gradient_of_wind_field(
-            fake_HR[:, :3], self.x, self.y, Z
+            fake_HR[:, :3], self.x, self.y, Z[:, :1]
         )
 
         (
